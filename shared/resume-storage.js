@@ -102,6 +102,7 @@
       schemaVersion: value.schemaVersion,
       createdAt: text(value.createdAt) || nowIso(),
       updatedAt: text(value.updatedAt) || nowIso(),
+      ...(value._syncBase ? { _syncBase: value._syncBase } : {}),
     };
   }
 
@@ -369,7 +370,7 @@
       version: 1,
       exportedAt: nowIso(),
       activeTemplateId: state.activeTemplateId,
-      templates: state.templates,
+      templates: state.templates.map(({ _syncBase, ...template }) => template),
     };
   }
 
@@ -474,7 +475,7 @@
     return next;
   }
 
-  root.ResumeStorage = Object.freeze({
+  const api = {
     keys,
     DEFAULT_TEMPLATE_ID,
     loadTemplateState,
@@ -488,5 +489,32 @@
     importTemplateData,
     exportActiveTemplateData,
     importActiveTemplateData,
-  });
+  };
+  // Pages use the worker as the sole writer. Explicit storage overrides keep
+  // the pure storage API available to the worker and existing unit tests.
+  if (typeof document !== "undefined" && root.chrome?.runtime?.sendMessage) {
+    let bases = {};
+    let observedActiveId;
+    for (const [method, fn] of Object.entries(api)) {
+      if (typeof fn !== "function") continue;
+      api[method] = async (...args) => {
+        if (args.length >= fn.length && args[fn.length - 1]?.local) return fn(...args);
+        const response = await root.chrome.runtime.sendMessage({ action: "resumeStorage", method, args, bases, observedActiveId });
+        if (!response?.ok) throw new Error(response?.error || "简历存储后台未响应");
+        if (method === "loadTemplateState") {
+          observedActiveId = response.value.activeTemplateId;
+          bases = Object.fromEntries(response.value.templates.map(t => [t.id, { ...(t._syncBase || { origin: t.id, clock: {} }), template: t }]));
+        } else if (response.value?._syncBase) {
+          const saved = response.value;
+          const base = { ...saved._syncBase, template: saved };
+          bases[saved.id] = base;
+          if (["saveTemplateContent", "renameTemplate"].includes(method)) bases[args[0]] = base;
+          if (["saveTemplateContent", "importActiveTemplateData"].includes(method)) observedActiveId = saved.id;
+        }
+        if (method === "setActiveTemplateId") observedActiveId = response.value;
+        return response.value;
+      };
+    }
+  }
+  root.ResumeStorage = Object.freeze(api);
 })(typeof window !== "undefined" ? window : globalThis);

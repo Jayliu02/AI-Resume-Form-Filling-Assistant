@@ -44,15 +44,11 @@
       </header>
 
       <main class="app-content">
-        <div class="tabs" id="tabs">
-          <button class="tab active" data-tab="fill">自动填充</button>
-          <button class="tab" data-tab="resume">标准简历</button>
-        </div>
-
         <section class="tab-panel active" id="tab-fill">
           <div class="template-bar">
-            <label for="fillTemplateSelect">简历模板（本次填充使用）</label>
+            <label for="fillTemplateSelect">当前简历</label>
             <select id="fillTemplateSelect" class="template-select"></select>
+            <button class="btn btn-outline btn-sm" id="openResumeEditorBtn">编辑简历</button>
           </div>
 
           <div class="stats-grid stats-grid-3">
@@ -101,97 +97,8 @@
           </div>
         </section>
 
-        <section class="tab-panel" id="tab-resume">
-          <div class="template-manager">
-            <div class="section-header section-header-normal">
-              <span>简历模板</span>
-            </div>
-            <select id="resumeTemplateSelect" class="template-select"></select>
-            <div class="template-manager-row">
-              <button class="btn btn-outline btn-sm" id="newTemplateBtn" title="新建一个空白简历模板">新建</button>
-              <button class="btn btn-outline btn-sm" id="duplicateTemplateBtn" title="复制当前模板">复制</button>
-              <button class="btn btn-outline btn-sm" id="renameTemplateBtn" title="重命名当前模板">重命名</button>
-              <button class="btn btn-outline btn-sm" id="deleteTemplateBtn" title="删除当前模板">删除</button>
-            </div>
-            <div class="template-manager-row">
-              <button class="btn btn-outline btn-sm" id="exportTemplatesBtn" title="导出全部模板为 JSON 备份">导出</button>
-              <button class="btn btn-outline btn-sm" id="importTemplatesBtn" title="从 JSON 备份导入（覆盖当前模板）">导入</button>
-            </div>
-            <div class="template-manager-row">
-              <button class="btn btn-outline btn-sm" id="exportResumeJsonBtn" title="导出当前标准简历 JSON">导出当前简历</button>
-              <button class="btn btn-outline btn-sm" id="importResumeJsonBtn" title="导入标准简历 JSON 到当前模板">导入当前简历</button>
-            </div>
-            <input type="file" id="importTemplatesFile" accept="application/json" hidden />
-            <input type="file" id="importResumeJsonFile" accept="application/json" hidden />
-            <div class="tip">
-              每个模板是一份独立的标准简历。基础信息相近时，可“复制当前”后只改侧重点（如测开 / 游戏开发 / 普通开发）。填充前在上方“自动填充”页切换模板即可。
-            </div>
-          </div>
-
-          <div class="section-block">
-            <div class="section-header section-header-normal">
-              <span>简历配置</span>
-            </div>
-            <div class="tip">
-              简历字段较多，推荐在独立网页里编辑。新页面会复用当前扩展里的同一份标准简历数据。
-            </div>
-            <div class="resume-launch-card">
-              <div class="resume-launch-copy">
-                <div class="resume-launch-title">在宽页面里配置个人简历</div>
-                <div class="resume-launch-desc">
-                  更适合填写长文本、工作经历、教育经历和项目说明，保存后会立即同步到自动填充流程。
-                </div>
-              </div>
-              <button class="btn btn-primary" id="openResumeEditorBtn">打开简历配置页</button>
-            </div>
-            <div class="resume-summary-grid" id="resumeSummaryGrid"></div>
-          </div>
-
-          <div class="resume-sidepanel-legacy" hidden>
-            <div class="section-block">
-              <div class="section-header section-header-normal">
-                <span>标准化简历字段</span>
-                <div class="section-actions">
-                  <button class="btn-text" id="reloadResumeBtn">重新加载</button>
-                </div>
-              </div>
-              <div class="tip">
-                主流程以这份标准简历为准。请尽量填写完整，尤其是基本信息、工作经历、教育经历和求职偏好。
-              </div>
-              <div class="resume-editor-layout">
-                <aside class="resume-nav" id="resumeNav"></aside>
-                <div class="resume-form-host" id="resumeFormHost"></div>
-              </div>
-              <div class="action-row">
-                <button class="btn btn-primary" id="saveResumeBtn">保存标准简历</button>
-              </div>
-            </div>
-
-            <div class="section-block">
-              <div class="section-header section-header-normal">
-                <span>导入辅助（可选）</span>
-              </div>
-              <div class="tip">
-                你仍然可以粘贴原始简历文本或上传 PDF，用 AI 预填上面的标准字段；导入后请自行检查并保存。
-              </div>
-              <div class="form-group">
-                <label for="resumeImportText">原始简历文本</label>
-                <textarea
-                  id="resumeImportText"
-                  class="textarea"
-                  placeholder="粘贴原始简历文本，或上传 PDF 后自动填入这里。"
-                ></textarea>
-              </div>
-              <div class="action-row">
-                <button class="btn btn-primary" id="importResumeBtn">AI 导入到标准简历</button>
-                <button class="btn btn-outline" id="uploadPdfBtn">上传 PDF 并导入</button>
-              </div>
-              <input type="file" id="resumePdfFile" accept="application/pdf" hidden />
-            </div>
-          </div>
-        </section>
-
-        <div class="log-section">
+        <details class="log-section" id="runLogs">
+          <summary>运行日志</summary>
           <div class="section-header">
             <span>运行日志</span>
             <div class="section-actions">
@@ -200,17 +107,17 @@
             </div>
           </div>
           <div class="tip" id="logExportStatus">
-            未配置自动导出。点击“选择项目目录”后，填充诊断日志会自动保存到所选目录下的 debug-logs/。
+            选择目录可自动保存日志。
           </div>
           <div class="log-container" id="logContent">
             <div class="log-item log-info">
               <span class="log-time">--:--</span>
               <span class="log-msg">
-                先在“标准简历”里填写或导入资料，再到“自动填充”执行映射和填表。
+                选择简历后，点击“开始填充”。
               </span>
             </div>
           </div>
-        </div>
+        </details>
       </main>
 
       <div class="modal" id="settingsModal">
@@ -333,51 +240,11 @@
         </div>
       </div>
 
-      <div class="modal" id="templateNameModal">
-        <div class="modal-backdrop" id="closeTemplateNameBackdrop"></div>
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3 id="templateNameModalTitle">新建模板</h3>
-            <button class="icon-btn" id="closeTemplateNameBtn">
-              <svg
-                width="20"
-                height="20"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label for="templateNameInput">模板名称</label>
-              <input
-                type="text"
-                id="templateNameInput"
-                placeholder="例如：测开 / 游戏开发 / 普通开发"
-              />
-            </div>
-            <div class="config-status" id="templateNameStatus"></div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-primary btn-block" id="saveTemplateNameBtn">保存</button>
-          </div>
-        </div>
-      </div>
     </div>
-    <script src="libs/pdfjs/pdf.min.js"></script>
     <script src="shared/resume-schema.js"></script>
     <script src="shared/resume-storage.js"></script>
     <script src="shared/model-storage.js"></script>
     <script src="shared/ai-client.js"></script>
-    <script src="shared/resume-prompts.js"></script>
     <script src="shared/log-export.js"></script>
     <script src="shared/log-visibility.js"></script>
     <script src="shared/content-bridge.js"></script>

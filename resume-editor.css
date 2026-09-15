@@ -69,7 +69,7 @@ body.resume-editor-page {
 .editor-toolbar {
   display: flex;
   gap: 10px;
-  flex-shrink: 0;
+  min-width: 0;
   flex-wrap: wrap;
   align-items: center;
 }
@@ -322,6 +322,7 @@ body.resume-editor-page {
 }
 
 .resume-field {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -333,11 +334,10 @@ body.resume-editor-page {
 }
 
 .resume-field-label {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  line-height: 1.5;
 }
 
 .resume-input,
@@ -347,7 +347,8 @@ body.resume-editor-page {
   padding: 9px 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.5;
   font-family: inherit;
   color: var(--text-main);
   background: #ffffff;
@@ -428,6 +429,7 @@ body.resume-editor-page {
 }
 
 .editor-import-header {
+  cursor: pointer;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
   background: #fafafa;
@@ -528,3 +530,40 @@ body.resume-editor-page {
     grid-column: auto;
   }
 }
+
+.editor-menu { position: relative; }
+.editor-menu > summary { list-style: none; cursor: pointer; }
+.editor-menu > summary::-webkit-details-marker { display: none; }
+.editor-menu-content {
+  position: absolute; z-index: 20; top: calc(100% + 8px); right: 0;
+  width: 180px; padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  border: 1px solid var(--border); border-radius: 12px; background: white;
+  box-shadow: 0 8px 30px #0002;
+}
+.editor-management .editor-menu-content { width: 340px; max-width: calc(100vw - 48px); }
+.resume-subsection { display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
+.resume-subsection + .resume-subsection { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border); }
+.resume-subsection > .btn { align-self: start; }
+.resume-subsection-title { font-size: 15px; margin: 0; }
+.resume-date-control { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; min-width: 0; }
+.resume-date-control select { min-width: 0; padding: 9px 5px; }
+.resume-date-clear { grid-column: 3; justify-self: end; }
+.resume-date-legacy { grid-column: 1 / -1; font-size: 13px; overflow-wrap: anywhere; color: var(--text-secondary); }
+#resumeSyncPanel { font-size: 14px; line-height: 1.6; }
+#resumeSyncPanel p { margin: 8px 0; }
+#resumeSyncPanel summary { cursor: pointer; }
+#resumeSyncPanel label { display: flex; align-items: center; gap: 8px; }
+#resumeSyncPanel input[type="checkbox"] { width: auto; }
+#resumeSyncPanel button { margin-top: 8px; }
+.resume-section-head .resume-section-toggle { width: 100%; }
+@media (max-width: 640px) {
+  .editor-toolbar .template-select { max-width: none; flex-basis: 100%; }
+  .editor-menu-content { right: auto; left: 0; }
+  .editor-management .editor-menu-content { right: 0; left: auto; }
+  .resume-section-body { padding: 14px; }
+  .resume-slot { padding: 12px; }
+}
+
+.resume-editor-page .btn { min-height: 36px; padding: 8px 12px; }
+.resume-field.resume-field-compact { grid-column: auto; }
+.resume-field-compact .resume-textarea { min-height: 64px; }

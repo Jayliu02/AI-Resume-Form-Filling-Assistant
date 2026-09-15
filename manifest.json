@@ -7,9 +7,13 @@
   "permissions": [
     "storage",
     "scripting",
-    "sidePanel"
+    "sidePanel",
+    "alarms"
   ],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "action": {
     "default_icon": {
       "128": "icons/icon128.png"
@@ -23,5 +27,6 @@
   },
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA09nTXkCt9fZgGPhalTF4ChChoW0eU22enf4mkub1dJ9xYj5gGeWi9FRqkMzMAiMfnjIVGcODmlcg+BkRTkj9mRDWwgw9x+BURa1pouS4wskIbWmpV5PyB/j8OVrbhhw8g/UnE6suwg2Mtj8nfBDEBQbZAMUI3QGDJYtdmKfrJJj1VKmpZ/eGUy/S3Yn04nGMWy9dpjVgRf7bPYqx2R6stVZGK/sXNQ4J7/x/KwDMvXcHDAXyMKKcRTbzhbc9OEBCluBrB30/rIWCdDFl0TknMlh8JRIOU5nProm+apJOjQmFvamRYiYmoDPopyzyxZp4Z2Z9AeoxI48JPGQd7VVUAQIDAQAB"
 }

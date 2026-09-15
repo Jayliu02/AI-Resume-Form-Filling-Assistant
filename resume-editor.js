@@ -16,9 +16,6 @@ const deleteTemplateBtn = document.getElementById("deleteTemplateBtn");
 const exportTemplatesBtn = document.getElementById("exportTemplatesBtn");
 const importTemplatesBtn = document.getElementById("importTemplatesBtn");
 const importTemplatesFileEl = document.getElementById("importTemplatesFile");
-const exportResumeJsonBtn = document.getElementById("exportResumeJsonBtn");
-const importResumeJsonBtn = document.getElementById("importResumeJsonBtn");
-const importResumeJsonFileEl = document.getElementById("importResumeJsonFile");
 
 const templateNameModal = document.getElementById("templateNameModal");
 const templateNameModalTitle = document.getElementById("templateNameModalTitle");
@@ -72,6 +69,7 @@ const collapsedResumeSections = new Set();
 document.addEventListener("DOMContentLoaded", async () => {
   initResumeEditorEvents();
   initTemplateEvents();
+  resumeImportTextEl.addEventListener("input", markResumeDirty);
   await initModels();
   await loadResumeProfile();
 });
@@ -88,6 +86,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 
   if (isResumeDirty || isImporting) {
+    updatePageStatus("info", "简历存储有更新；当前编辑已保留，保存时如有冲突将保留副本。完成编辑后可重新加载查看。");
     return;
   }
 
@@ -142,13 +141,6 @@ function initTemplateEvents() {
     importTemplatesFileEl.click();
   });
   importTemplatesFileEl.addEventListener("change", handleImportTemplates);
-  exportResumeJsonBtn.addEventListener("click", handleExportResumeJson);
-  importResumeJsonBtn.addEventListener("click", () => {
-    importResumeJsonFileEl.value = "";
-    importResumeJsonFileEl.click();
-  });
-  importResumeJsonFileEl.addEventListener("change", handleImportResumeJson);
-
   closeTemplateNameBtn.addEventListener("click", closeTemplateNameModal);
   closeTemplateNameBackdrop.addEventListener("click", closeTemplateNameModal);
   saveTemplateNameBtn.addEventListener("click", handleSaveTemplateName);
@@ -241,17 +233,22 @@ async function handleSaveTemplateName() {
 }
 
 async function handleExportTemplates() {
-  const payload = await resumeStorage.exportTemplateData();
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `简历模板备份-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-  updatePageStatus("success", `已导出 ${payload.templates.length} 个简历模板`);
+  try {
+    if (isResumeDirty) await persistResumeProfile({ silent: true });
+    const payload = await resumeStorage.exportTemplateData();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `简历模板备份-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    updatePageStatus("success", `已导出 ${payload.templates.length} 份简历`);
+  } catch (error) {
+    updatePageStatus("error", `导出失败：${error.message}`);
+  }
 }
 
 async function handleImportTemplates() {
@@ -268,40 +265,11 @@ async function handleImportTemplates() {
     const data = JSON.parse(text);
     const result = await resumeStorage.importTemplateData(data);
     await loadResumeProfile();
-    updatePageStatus("success", `已导入 ${result.templates.length} 个简历模板`);
+    updatePageStatus("success", `已导入 ${result.templates.length} 份简历`);
   } catch (error) {
     updatePageStatus("error", `导入失败：${error.message}`);
   } finally {
     importTemplatesFileEl.value = "";
-  }
-}
-
-async function handleExportResumeJson() {
-  await persistResumeProfile({ silent: true });
-  const payload = await resumeStorage.exportActiveTemplateData();
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `标准简历-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-  updatePageStatus("success", "已导出当前标准简历 JSON");
-}
-
-async function handleImportResumeJson() {
-  const file = importResumeJsonFileEl.files?.[0];
-  if (!file) return;
-  if (!window.confirm("导入会覆盖当前模板内容，确定继续吗？")) return;
-  try {
-    const data = JSON.parse(await readFileAsText(file));
-    await resumeStorage.importActiveTemplateData(data);
-    await loadResumeProfile();
-    updatePageStatus("success", "已导入当前标准简历 JSON");
-  } catch (error) {
-    updatePageStatus("error", `简历 JSON 导入失败：${error.message}`);
-  } finally {
-    importResumeJsonFileEl.value = "";
   }
 }
 
@@ -367,7 +335,8 @@ function isModelConfigured(model) {
 
 function resetCollapsedResumeSections() {
   collapsedResumeSections.clear();
-  schema.sections.forEach((section) => collapsedResumeSections.add(section.key));
+  getEditorSections().forEach((section) => collapsedResumeSections.add(section.key));
+  collapsedResumeSections.delete("personal");
 }
 
 async function loadResumeProfile() {
@@ -391,186 +360,124 @@ async function loadResumeProfile() {
     saveResumeBtn.disabled = true;
     updatePageStatus(
       "info",
-      `已加载「${active?.name || "未命名"}」。当前共填写 ${countFilledSummaryItems(
-        resumeProfile
-      )} 个有效字段。`
+      `已加载「${active?.name || "未命名"}」`
     );
   } finally {
     isLoadingResume = false;
   }
 }
 
-function renderResumeEditor(profile) {
-  const sectionStats = buildResumeSectionStats(profile);
-
-  renderResumeNav(sectionStats);
-  resumeFormHost.innerHTML = "";
-
-  for (const section of schema.sections) {
-    const itemCount =
-      section.type === "list" && Array.isArray(profile[section.key])
-        ? profile[section.key].length
-        : 0;
-    const isCollapsed = collapsedResumeSections.has(section.key);
-    const stats = sectionStats.get(section.key) || {
-      totalFields: 0,
-      filledFields: 0,
-      itemCount,
-      filledItems: 0,
-    };
-    const sectionEl = document.createElement("section");
-    sectionEl.className = `resume-section${isCollapsed ? " is-collapsed" : ""}`;
-    sectionEl.dataset.sectionKey = section.key;
-    sectionEl.id = `resume-section-${section.key}`;
-
-    const headEl = document.createElement("div");
-    headEl.className = "resume-section-head";
-    headEl.innerHTML = `
-      <div class="resume-section-head-main">
-        <button
-          type="button"
-          class="resume-section-toggle"
-          data-section-toggle="${escapeHtml(section.key)}"
-          aria-expanded="${isCollapsed ? "false" : "true"}"
-        >
-          <span class="resume-section-toggle-icon">▸</span>
-          <span class="resume-section-heading">
-            <span class="resume-section-title">${escapeHtml(section.label)}</span>
-            <span class="resume-section-summary">${escapeHtml(
-              createResumeSectionSummary(section, stats)
-            )}</span>
-          </span>
-        </button>
-        ${
-          section.type === "list"
-            ? `
-              <div class="resume-section-actions">
-                <button
-                  type="button"
-                  class="btn btn-outline btn-sm resume-section-action"
-                  data-section-add="${escapeHtml(section.key)}"
-                  ${itemCount >= section.slots ? "disabled" : ""}
-                >
-                  新增一条
-                </button>
-              </div>
-            `
-            : ""
-        }
-      </div>
-      ${
-        section.note
-          ? `<div class="resume-section-note">${escapeHtml(section.note)}</div>`
-          : ""
-      }
-    `;
-
-    const bodyEl = document.createElement("div");
-    bodyEl.className = "resume-section-body";
-
-    if (section.type === "group") {
-      bodyEl.appendChild(renderFieldGrid(section.fields, profile, section.key));
-    } else {
-      const items = Array.isArray(profile[section.key]) ? profile[section.key] : [];
-      for (let slotIndex = 0; slotIndex < items.length; slotIndex += 1) {
-        const slotEl = document.createElement("div");
-        slotEl.className = "resume-slot";
-
-        const slotHead = document.createElement("div");
-        slotHead.className = "resume-slot-head";
-        slotHead.innerHTML = `
-          <div class="resume-slot-head-main">
-            <div>
-              <div class="resume-slot-title">${escapeHtml(
-                `${section.itemLabel} ${slotIndex + 1}`
-              )}</div>
-              <div class="resume-slot-subtitle">${escapeHtml(
-                `映射路径：${section.key}.${slotIndex}.*`
-              )}</div>
-            </div>
-            ${
-              items.length > Math.max(1, Number(section.initialItems) || 1)
-                ? `
-                  <button
-                    type="button"
-                    class="btn-text resume-slot-remove"
-                    data-section-remove="${escapeHtml(section.key)}"
-                    data-item-index="${slotIndex}"
-                  >
-                    删除
-                  </button>
-                `
-                : ""
-            }
-          </div>
-        `;
-
-        slotEl.appendChild(slotHead);
-        slotEl.appendChild(
-          renderFieldGrid(section.fields, profile, `${section.key}.${slotIndex}`)
-        );
-        bodyEl.appendChild(slotEl);
-      }
-    }
-
-    sectionEl.appendChild(headEl);
-    sectionEl.appendChild(bodyEl);
-    resumeFormHost.appendChild(sectionEl);
-  }
+function getEditorSections() {
+  return schema.sections.filter((section) => !["certificates", "languages"].includes(section.key)).map((section) =>
+    section.key === "skills"
+      ? { ...section, label: "技能与证书", children: [section, schema.getSectionDefinition("certificates"), schema.getSectionDefinition("languages")] }
+      : { ...section, children: [section] }
+  );
 }
 
-function renderResumeNav(sectionStats) {
-  resumeNavEl.innerHTML = "";
+function editorSectionKey(key) {
+  return ["certificates", "languages"].includes(key) ? "skills" : key;
+}
 
-  for (const section of schema.sections) {
-    const stats = sectionStats.get(section.key) || {
-      totalFields: 0,
-      filledFields: 0,
-      itemCount: 0,
-      filledItems: 0,
-    };
-    const hasValue =
-      section.type === "list" ? stats.filledItems > 0 : stats.filledFields > 0;
+function renderResumeEditor(profile) {
+  const stats = buildResumeSectionStats(profile);
+  resumeNavEl.replaceChildren();
+  resumeFormHost.replaceChildren();
+  for (const section of getEditorSections()) {
     const isCollapsed = collapsedResumeSections.has(section.key);
-    const buttonEl = document.createElement("button");
-    buttonEl.type = "button";
-    buttonEl.className = `resume-nav-btn${hasValue ? " has-value" : ""}${
-      isCollapsed ? "" : " is-expanded"
-    }`;
-    buttonEl.dataset.resumeNav = section.key;
-    buttonEl.innerHTML = `
-      <span class="resume-nav-label">${escapeHtml(section.label)}</span>
-      <span class="resume-nav-meta">${escapeHtml(
-        createResumeNavSummary(section, stats)
-      )}</span>
-    `;
-    resumeNavEl.appendChild(buttonEl);
+    const filled = section.children.reduce((count, child) => count + (stats.get(child.key)?.filledFields || 0), 0);
+    const nav = document.createElement("button");
+    nav.type = "button";
+    nav.className = `resume-nav-btn${filled ? " has-value" : ""}${isCollapsed ? "" : " is-expanded"}`;
+    nav.dataset.resumeNav = section.key;
+    nav.innerHTML = `<span class="resume-nav-label">${escapeHtml(section.label)}</span>`;
+    resumeNavEl.appendChild(nav);
+
+    const panel = document.createElement("section");
+    panel.className = `resume-section${isCollapsed ? " is-collapsed" : ""}`;
+    panel.dataset.sectionKey = section.key;
+    panel.id = `resume-section-${section.key}`;
+    const head = document.createElement("div");
+    head.className = "resume-section-head";
+    head.innerHTML = `<button type="button" class="resume-section-toggle" data-section-toggle="${section.key}" aria-expanded="${!isCollapsed}">
+      <span class="resume-section-toggle-icon">▸</span>
+      <span class="resume-section-title">${escapeHtml(section.label)}</span>
+      <span class="resume-section-summary">${filled ? `${filled} 项` : ""}</span>
+    </button>`;
+    panel.appendChild(head);
+    const body = document.createElement("div");
+    body.className = "resume-section-body";
+    for (const child of section.children) {
+      const group = document.createElement("div");
+      group.className = "resume-subsection";
+      if (section.children.length > 1) {
+        const title = document.createElement("h3");
+        title.className = "resume-subsection-title";
+        title.textContent = child.key === "skills" ? "技能" : child.label;
+        group.appendChild(title);
+      }
+      if (child.type === "group") group.appendChild(renderFieldGrid(child.fields, profile, child.key));
+      else {
+        const items = profile[child.key] || [];
+        items.forEach((item, index) => {
+          const slot = document.createElement("div");
+          slot.className = "resume-slot";
+          const slotHead = document.createElement("div");
+          slotHead.className = "resume-slot-head-main";
+          slotHead.innerHTML = `<span class="resume-slot-title">${escapeHtml(child.itemLabel)} ${index + 1}</span>
+            ${items.length > 1 ? `<button type="button" class="btn-text" data-section-remove="${child.key}" data-item-index="${index}">删除</button>` : ""}`;
+          slot.appendChild(slotHead);
+          slot.appendChild(renderFieldGrid(child.fields, profile, `${child.key}.${index}`));
+          group.appendChild(slot);
+        });
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "btn btn-outline btn-sm";
+        add.dataset.sectionAdd = child.key;
+        add.disabled = items.length >= child.slots;
+        add.textContent = `新增${child.itemLabel}`;
+        group.appendChild(add);
+      }
+      body.appendChild(group);
+    }
+    panel.appendChild(body);
+    resumeFormHost.appendChild(panel);
   }
 }
 
 function renderFieldGrid(fields, profile, prefix) {
-  const gridEl = document.createElement("div");
-  gridEl.className = "resume-fields-grid";
-
+  const grid = document.createElement("div");
+  grid.className = "resume-fields-grid";
+  const labels = {};
+  const controls = {};
   for (const field of fields) {
     const path = `${prefix}.${field.key}`;
-    const fieldEl = document.createElement("div");
-    fieldEl.className = "resume-field";
-
-    const labelEl = document.createElement("label");
-    labelEl.className = "resume-field-label";
-    labelEl.textContent = field.label;
-
+    const wrapper = document.createElement("div");
+    wrapper.className = `resume-field${prefix === "skills" && field.key !== "notableAchievements" ? " resume-field-compact" : ""}`;
+    const label = document.createElement("label");
+    label.className = "resume-field-label";
+    label.textContent = field.label;
     const control = createFieldControl(field, schema.getValueByPath(profile, path), path);
-    fieldEl.appendChild(labelEl);
-    fieldEl.appendChild(control);
-    gridEl.appendChild(fieldEl);
+    control.id = `field-${path}`;
+    if (field.input !== "date") label.htmlFor = control.id;
+    wrapper.appendChild(label);
+    wrapper.appendChild(control);
+    grid.appendChild(wrapper);
+    labels[field.key] = label;
+    controls[field.key] = control;
   }
-
-  return gridEl;
+  if (prefix.startsWith("personalAchievements.")) {
+    const updateAffiliation = () => {
+      labels.affiliation.textContent = controls.type.value === "论文" ? "发表期刊" : controls.type.value === "专利" ? "专利级别" : "归属";
+    };
+    controls.type.addEventListener("change", updateAffiliation);
+    updateAffiliation();
+  }
+  return grid;
 }
 
 function createFieldControl(field, value, path) {
+  if (field.input === "date") return ResumeDateControl.create(document, field, value, path, markResumeDirty);
   let control;
 
   if (field.input === "textarea") {
@@ -588,13 +495,13 @@ function createFieldControl(field, value, path) {
   } else {
     control = document.createElement("input");
     control.className = "resume-input";
-    control.type = field.input === "date" ? "text" : field.input || "text";
+    control.type = field.input || "text";
   }
 
   control.dataset.resumePath = path;
   control.value = value == null ? "" : String(value);
-  if (field.placeholder || field.input === "date") {
-    control.placeholder = field.placeholder || "YYYY-MM 或 YYYY-MM-DD";
+  if (field.placeholder) {
+    control.placeholder = field.placeholder;
   }
 
   control.addEventListener("input", markResumeDirty);
@@ -605,7 +512,7 @@ function createFieldControl(field, value, path) {
 function markResumeDirty() {
   isResumeDirty = true;
   saveResumeBtn.disabled = false;
-  updatePageStatus("warning", "有未保存的修改，记得点击“保存标准简历”。");
+  updatePageStatus("warning", "未保存");
 }
 
 function hasMeaningfulResumeValue(value) {
@@ -618,10 +525,6 @@ function hasMeaningfulResumeValue(value) {
     return Object.values(value).some((item) => hasMeaningfulResumeValue(item));
   }
   return false;
-}
-
-function countFilledSummaryItems(profile) {
-  return schema.getCatalogWithValues(profile).filter((field) => field.hasValue).length;
 }
 
 function buildResumeSectionStats(profile) {
@@ -650,24 +553,8 @@ function buildResumeSectionStats(profile) {
   return statsBySection;
 }
 
-function createResumeSectionSummary(section, stats) {
-  if (section.type === "list") {
-    return `已添加 ${stats.itemCount} / ${section.slots} 条，已填写 ${stats.filledItems} 条`;
-  }
-
-  return `已填写 ${stats.filledFields} / ${stats.totalFields} 项`;
-}
-
-function createResumeNavSummary(section, stats) {
-  if (section.type === "list") {
-    return `${stats.filledItems}/${stats.itemCount} 条`;
-  }
-
-  return `${stats.filledFields}/${stats.totalFields} 项`;
-}
-
 function collectResumeProfileFromForm() {
-  const nextProfile = schema.createEmptyResumeProfile();
+  const nextProfile = schema.clone(resumeProfile);
   const controls = resumeFormHost.querySelectorAll("[data-resume-path]");
 
   controls.forEach((control) => {
@@ -717,6 +604,7 @@ function toggleResumeSection(sectionKey) {
 }
 
 function openResumeSection(sectionKey, { scrollIntoView = false } = {}) {
+  sectionKey = editorSectionKey(sectionKey);
   if (!sectionKey) return;
 
   collapsedResumeSections.delete(sectionKey);
@@ -747,12 +635,13 @@ function addResumeListItem(sectionKey) {
   if (items.length >= section.slots) return;
 
   items.push(schema.createEmptyListItem(sectionKey));
-  resumeProfile = schema.normalizeResumeProfile({
+  // The profile is already normalized; keep the new empty final slot editable.
+  resumeProfile = {
     ...nextProfile,
     [sectionKey]: items,
-  });
+  };
 
-  collapsedResumeSections.delete(sectionKey);
+  collapsedResumeSections.delete(editorSectionKey(sectionKey));
   renderResumeEditor(resumeProfile);
   markResumeDirty();
 
@@ -780,7 +669,7 @@ function removeResumeListItem(sectionKey, itemIndex) {
     [sectionKey]: items,
   });
 
-  collapsedResumeSections.delete(sectionKey);
+  collapsedResumeSections.delete(editorSectionKey(sectionKey));
   renderResumeEditor(resumeProfile);
   markResumeDirty();
   openResumeSection(sectionKey);
@@ -790,7 +679,7 @@ async function persistResumeProfile({ silent = false } = {}) {
   const nextProfile = collectResumeProfileFromForm();
 
   resumeProfile = nextProfile;
-  await resumeStorage.saveTemplateContent(activeTemplateId, {
+  const savedTemplate = await resumeStorage.saveTemplateContent(activeTemplateId, {
     profile: nextProfile,
     schemaVersion: schema.version,
     rawText: resumeImportTextEl.value.trim(),
@@ -798,7 +687,12 @@ async function persistResumeProfile({ silent = false } = {}) {
 
   isResumeDirty = false;
   saveResumeBtn.disabled = true;
-  updatePageStatus("success", "标准简历已保存，侧边栏自动填充会立即使用这份数据。");
+  if (savedTemplate?._syncConflict) {
+    await loadResumeProfile();
+    updatePageStatus("info", "已保存；检测到并发修改，已保留冲突副本，请在模板列表中检查整理。");
+    return;
+  }
+  updatePageStatus("success", "已保存");
 
   if (!silent) {
     document.title = "简历配置 - AI 简历填表助手";
@@ -806,10 +700,12 @@ async function persistResumeProfile({ silent = false } = {}) {
 }
 
 saveResumeBtn.addEventListener("click", async () => {
-  await persistResumeProfile();
+  try { await persistResumeProfile(); }
+  catch (error) { updatePageStatus("error", `保存失败：${error.message}`); }
 });
 
 reloadResumeBtn.addEventListener("click", async () => {
+  if (isResumeDirty && !window.confirm("重新加载会放弃未保存的修改，继续吗？")) return;
   await loadResumeProfile();
   updatePageStatus("info", "已从扩展存储重新加载标准简历。");
 });
@@ -843,7 +739,7 @@ resumePdfFileEl.addEventListener("change", async () => {
     }
 
     resumeImportTextEl.value = text;
-    await resumeStorage.saveTemplateContent(activeTemplateId, { rawText: text });
+    markResumeDirty();
 
     updatePageStatus("success", "PDF 文本提取完成，开始导入到标准简历...");
     await importResumeToSchema(text);
@@ -874,7 +770,7 @@ async function importResumeToSchema(rawText) {
   importResumeBtn.disabled = true;
   uploadPdfBtn.disabled = true;
   importResumeBtn.textContent = "导入中...";
-  updatePageStatus("info", "正在调用 AI 导入到标准简历...");
+  updatePageStatus("info", "正在调用 AI 预填...");
 
   try {
     const prompt = resumePrompts.buildResumeImportPrompt(
@@ -883,28 +779,28 @@ async function importResumeToSchema(rawText) {
     );
     const aiText = await aiClient.callAI(activeModel.id, prompt, "resume_import");
     const parsed = parseJsonFromAiText(aiText);
-    const normalized = schema.normalizeResumeProfile(parsed);
-
+    // Keep archived data out of AI extraction, but preserve it when replacing visible fields.
+    const source = { ...parsed, additional: { ...parsed.additional } };
+    if (resumeProfile.identityAndAuthorization) source.identityAndAuthorization = resumeProfile.identityAndAuthorization;
+    else delete source.identityAndAuthorization;
+    for (const key of ["publications", "patents"]) {
+      if (resumeProfile.additional?.[key]) source.additional[key] = resumeProfile.additional[key];
+    }
+    const normalized = schema.normalizeResumeProfile(source);
     resumeProfile = normalized;
-    await resumeStorage.saveTemplateContent(activeTemplateId, {
-      profile: normalized,
-      schemaVersion: schema.version,
-      rawText: text,
-    });
-
+    resumeImportTextEl.value = text;
     resetCollapsedResumeSections();
     renderResumeEditor(normalized);
-    isResumeDirty = false;
-    saveResumeBtn.disabled = true;
+    markResumeDirty();
 
-    updatePageStatus("success", "导入完成：已预填到标准简历，请检查后保存。");
+    updatePageStatus("success", "已预填，请检查后保存。");
   } catch (error) {
     updatePageStatus("error", `导入失败：${error.message}`);
   } finally {
     isImporting = false;
     importResumeBtn.disabled = false;
     uploadPdfBtn.disabled = false;
-    importResumeBtn.textContent = "AI 导入到标准简历";
+    importResumeBtn.textContent = "AI 预填";
   }
 }
 

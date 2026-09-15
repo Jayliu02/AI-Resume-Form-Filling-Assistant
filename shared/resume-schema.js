@@ -131,6 +131,7 @@
     {
       key: "identityAndAuthorization",
       label: "证件与资格",
+      hidden: true,
       type: "group",
       fields: [
         { key: "personalIdType", label: "证件类型", input: "select", options: ["", "身份证", "护照", "居留许可", "其他"] },
@@ -434,13 +435,26 @@
       ],
     },
     {
+      key: "personalAchievements",
+      label: "个人成果",
+      type: "list",
+      initialItems: 1,
+      slots: 10,
+      itemLabel: "成果",
+      fields: [
+        { key: "name", label: "成果名称", input: "textarea" },
+        { key: "type", label: "类型", input: "select", options: ["", "专利", "论文", "其他"] },
+        { key: "date", label: "日期", input: "date" },
+        { key: "affiliation", label: "归属", input: "text" },
+        { key: "url", label: "链接", input: "url", placeholder: "https://..." },
+      ],
+    },
+    {
       key: "additional",
       label: "补充信息",
       type: "group",
       fields: [
         { key: "awards", label: "奖项荣誉", input: "textarea", placeholder: "奖学金、竞赛获奖、优秀员工等" },
-        { key: "publications", label: "论文发表", input: "textarea", placeholder: "论文标题、会议/期刊、年份等" },
-        { key: "patents", label: "专利", input: "textarea", placeholder: "专利名称、编号、状态等" },
         { key: "volunteerExperience", label: "志愿者经历", input: "textarea", placeholder: "组织、职责、时长等" },
         { key: "competitions", label: "竞赛经历", input: "textarea", placeholder: "黑客松、ACM、Kaggle、数学建模等" },
         { key: "openSourceContributions", label: "开源贡献", input: "textarea", placeholder: "仓库、PR、维护经历等" },
@@ -542,6 +556,7 @@
     const profile = {};
 
     for (const section of SECTION_DEFINITIONS) {
+      if (section.hidden) continue;
       if (section.type === "group") {
         profile[section.key] = buildEmptyObjectFromFields(section.fields);
         continue;
@@ -761,41 +776,31 @@
     return extractDateRangeValue(rawSource, fieldKey);
   }
 
-  function extractBirthDateFromPersonalId(idNumber) {
-    const normalized = String(idNumber || "").trim().toUpperCase();
-    let match = normalized.match(/^(\d{6})(\d{4})(\d{2})(\d{2})(\d{3}[\dX])$/);
-    if (match) {
-      return `${match[2]}-${match[3]}-${match[4]}`;
-    }
-
-    match = normalized.match(/^(\d{6})(\d{2})(\d{2})(\d{2})(\d{3})$/);
-    if (match) {
-      return `19${match[2]}-${match[3]}-${match[4]}`;
-    }
-
-    return "";
-  }
-
-  function applyDerivedProfileValues(profile) {
-    if (!profile.personal.birthDate) {
-      profile.personal.birthDate = extractBirthDateFromPersonalId(
-        profile.identityAndAuthorization.personalIdNumber
-      );
-    }
-
-    if (
-      !profile.identityAndAuthorization.personalIdType &&
-      profile.identityAndAuthorization.personalIdNumber
-    ) {
-      profile.identityAndAuthorization.personalIdType = "身份证";
-    }
-  }
-
   function normalizeResumeProfile(input) {
-    const source = input && typeof input === "object" ? input : {};
+    const source = clone(input && typeof input === "object" ? input : {});
+    // Migrate whole legacy text without guessing individual titles or dates.
+    for (const [key, type] of [["publications", "论文"], ["patents", "专利"]]) {
+      const name = normalizeFieldValue({}, source.additional?.[key]);
+      if (!name) continue;
+      const items = Array.isArray(source.personalAchievements) ? source.personalAchievements : [];
+      if (!items.some((item) => item?.name === name && item?.type === type)) {
+        const emptyIndex = items.findIndex((item) => !isMeaningfulValue(item));
+        if (emptyIndex >= 0) items[emptyIndex] = { name, type };
+        else if (items.length < 10) items.push({ name, type });
+        else continue; // Preserve legacy text when the list is full.
+      }
+      source.personalAchievements = items;
+      delete source.additional[key];
+    }
     const profile = createEmptyResumeProfile();
 
     for (const section of SECTION_DEFINITIONS) {
+      if (section.hidden) {
+        if (source[section.key] && typeof source[section.key] === "object") {
+          profile[section.key] = clone(source[section.key]);
+        }
+        continue;
+      }
       if (section.type === "group") {
         const rawGroup =
           source[section.key] && typeof source[section.key] === "object"
@@ -847,7 +852,9 @@
       }
     }
 
-    applyDerivedProfileValues(profile);
+    for (const key of ["publications", "patents"]) {
+      if (source.additional?.[key]) profile.additional[key] = source.additional[key];
+    }
     return profile;
   }
 
@@ -857,6 +864,7 @@
     const profile = options.profile || null;
 
     for (const section of SECTION_DEFINITIONS) {
+      if (section.hidden) continue;
       if (section.type === "group") {
         for (const field of section.fields) {
           fields.push({
@@ -941,9 +949,18 @@
     return JSON.stringify(createEmptyResumeProfile({ mode: "max" }), null, 2);
   }
 
+  function getFillProfile(input) {
+    const profile = normalizeResumeProfile(input);
+    delete profile.identityAndAuthorization;
+    delete profile.additional.publications;
+    delete profile.additional.patents;
+    return profile;
+  }
+
   window.ResumeSchema = {
-    version: 4,
-    sections: SECTION_DEFINITIONS,
+    version: 5,
+    sections: SECTION_DEFINITIONS.filter((section) => !section.hidden),
+    getFillProfile,
     clone,
     getSectionDefinition,
     createEmptyListItem,

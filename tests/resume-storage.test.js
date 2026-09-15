@@ -290,8 +290,8 @@ test("both resume entry points use the shared local storage helper", () => {
       editorHtml.indexOf("resume-editor.js")
   );
 
+  assert.match(editorSource, /resumeStorage\.saveTemplateContent\(/);
   for (const source of [popupSource, editorSource]) {
-    assert.match(source, /resumeStorage\.saveTemplateContent\(/);
     assert.match(source, /resumeStorage\.loadTemplateState\(/);
     assert.doesNotMatch(
       source,

@@ -116,12 +116,68 @@ test("resume schema preserves flexible date precision and legacy aliases", () =>
   assert.equal(normalized.contactAndLocation.hometownCity, "江西南昌");
   assert.equal(normalized.contactAndLocation.hometownProvince, "江西南昌");
   assert.equal(
-    normalized.identityAndAuthorization.personalIdNumber,
+    normalized.identityAndAuthorization.idCardNumber,
     "362202200106265976"
   );
-  assert.equal(normalized.identityAndAuthorization.personalIdType, "身份证");
+  assert.equal(normalized.identityAndAuthorization.personalIdType, undefined);
   assert.equal(normalized.educations[0].studyMode, "统招");
   assert.equal(normalized.educations[0].academicSystem, "2年及以上");
   assert.equal(normalized.educations[0].startDate, "2021-09");
   assert.equal(normalized.educations[0].endDate, "2025-06");
+});
+
+
+test("identity data stays archived and is excluded from all fill interfaces", () => {
+  const schema = loadResumeSchema();
+  const input = { identityAndAuthorization: { personalIdNumber: "110101200001010011", extra: "保留" } };
+  const normalized = schema.normalizeResumeProfile(input);
+  assert.deepEqual(normalized.identityAndAuthorization, input.identityAndAuthorization);
+  assert.equal(normalized.personal.birthDate, "");
+  assert.equal(schema.hasAnyFilledField(normalized), false);
+  assert.equal(schema.sections.some(s => s.key === "identityAndAuthorization"), false);
+  assert.equal(schema.getFieldCatalog().some(f => f.path.startsWith("identityAndAuthorization.")), false);
+  assert.equal(schema.createImportTemplateString().includes("identityAndAuthorization"), false);
+  assert.equal("identityAndAuthorization" in schema.getFillProfile(normalized), false);
+});
+
+test("legacy publications and patents migrate once without losing free text", () => {
+  const schema = loadResumeSchema();
+  const raw = { additional: { publications: "论文一，期刊 A\n论文二，期刊 B", patents: "专利一，授权", customNotes: "备注" } };
+  const profile = schema.normalizeResumeProfile(raw);
+  assert.equal(profile.personalAchievements.length, 2);
+  assert.equal(profile.personalAchievements[0].type, "论文");
+  assert.equal(profile.personalAchievements[0].name, raw.additional.publications);
+  assert.equal(profile.personalAchievements[0].date, "");
+  assert.equal(profile.personalAchievements[1].type, "专利");
+  assert.equal(profile.additional.customNotes, "备注");
+  assert.equal(profile.additional.publications, undefined);
+  assert.deepEqual(schema.normalizeResumeProfile(profile), profile);
+  const deleted = structuredClone(profile);
+  deleted.personalAchievements.splice(0, 1);
+  assert.equal(schema.normalizeResumeProfile(deleted).personalAchievements.length, 1);
+});
+
+test("full achievement lists preserve pending legacy text and migrate when room exists", () => {
+  const schema = loadResumeSchema();
+  const input = { personalAchievements: Array.from({length: 10}, (_, i) => ({name: `论文 ${i}`, type: "论文"})), additional: {patents: "旧专利"} };
+  const full = schema.normalizeResumeProfile(input);
+  assert.equal(full.personalAchievements.length, 10);
+  assert.equal(full.additional.patents, "旧专利");
+  full.personalAchievements.pop();
+  const migrated = schema.normalizeResumeProfile(full);
+  assert.equal(migrated.personalAchievements[9].name, "旧专利");
+  assert.equal(migrated.additional.patents, undefined);
+});
+
+test("achievements expose all mapping fields and preserve journal, level and date precision", () => {
+  const schema = loadResumeSchema();
+  const raw = { personalAchievements: [{name: "研究论文", type: "论文", date: "2025年06月", affiliation: "Nature", url: "https://example.com/paper"}], skills: {primarySkills: "JS"}, languages: [{name: "英语"}], certificates: [{name: "CET-6"}] };
+  const profile = schema.normalizeResumeProfile(raw);
+  assert.equal(profile.personalAchievements[0].date, "2025-06");
+  assert.equal(profile.personalAchievements[0].affiliation, "Nature");
+  assert.equal(profile.skills.primarySkills, "JS");
+  assert.equal(profile.languages[0].name, "英语");
+  assert.equal(profile.certificates[0].name, "CET-6");
+  assert.equal(schema.getCatalogWithValues(profile).filter(f => f.hasValue && f.sectionKey === "personalAchievements").length, 5);
+  assert.equal(JSON.parse(schema.createImportTemplateString()).personalAchievements.length, 10);
 });

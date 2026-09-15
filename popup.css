@@ -1201,3 +1201,10 @@ body {
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* Compact side-panel controls. */
+#runLogs > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+#runLogs > .section-header { margin-top: 12px; justify-content: flex-end; }
+#openResumeEditorBtn { align-self: flex-end; }
+.template-bar label { font-size: 14px; }
+.template-bar .template-select { font-size: 15px; }
