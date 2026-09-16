@@ -1,6 +1,6 @@
 /* ─── Page Shell ─────────────────────────────────────────────────────────── */
 body.resume-editor-page {
-  background: #f8f8fa;
+  background: var(--bg-app);
   min-height: 100vh;
 }
 
@@ -26,9 +26,9 @@ body.resume-editor-page {
   gap: 20px;
   padding: 20px 24px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 18px;
   background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+  box-shadow: none;
 }
 
 .editor-header-main {
@@ -94,36 +94,24 @@ body.resume-editor-page {
   box-shadow: 0 0 0 2px rgba(24, 24, 27, 0.1);
 }
 
-/* ─── Status Bar ─────────────────────────────────────────────────────────── */
-#pageStatus {
-  padding: 11px 16px;
-  border-radius: var(--radius-md);
-  border: none;
-  border-left: 3px solid var(--border);
-  background: #f4f4f5;
+/* ─── Compact Status ─────────────────────────────────────────────────────── */
+.editor-status {
+  flex: 0 1 240px;
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
   color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
-  transition: border-color 0.25s, background 0.25s, color 0.25s;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-#pageStatus[style*="rgba(16,185,129"] {
-  background: #f0fdf8;
-  color: #065f46;
-  border-left-color: var(--success);
-}
-
-#pageStatus[style*="rgba(239,68,68"] {
-  background: #fff5f5;
-  color: #991b1b;
-  border-left-color: var(--danger);
-}
-
-#pageStatus[style*="rgba(245,158,11"] {
-  background: #fffbeb;
-  color: #92400e;
-  border-left-color: var(--warning);
-}
+.editor-status[data-status="success"] { color: #047857; }
+.editor-status[data-status="error"] { color: #b91c1c; }
+.editor-status[data-status="warning"] { color: #a16207; }
+.editor-status[data-status="info"] { color: #475569; }
 
 /* ─── Main Layout ────────────────────────────────────────────────────────── */
 .editor-main {
@@ -135,6 +123,11 @@ body.resume-editor-page {
 .resume-editor-layout-wide {
   grid-template-columns: 200px minmax(0, 1fr);
   gap: 20px;
+}
+
+.resume-editor-layout {
+  display: grid;
+  align-items: start;
 }
 
 /* ─── Side Nav ───────────────────────────────────────────────────────────── */
@@ -160,12 +153,18 @@ body.resume-editor-page {
   gap: 3px;
   font: inherit;
   color: inherit;
-  transition: all 0.15s ease;
 }
 
 .resume-nav-btn:hover {
-  background: rgba(0,0,0,0.04);
-  border-color: var(--border);
+  background: transparent;
+  border-color: transparent;
+}
+
+.resume-nav-btn:focus-visible,
+.resume-section-toggle:focus-visible,
+.editor-menu > summary:focus-visible {
+  outline: 3px solid var(--primary-ring);
+  outline-offset: 2px;
 }
 
 .resume-nav-btn.has-value .resume-nav-label {
@@ -173,9 +172,9 @@ body.resume-editor-page {
 }
 
 .resume-nav-btn.is-expanded {
-  background: #ffffff;
-  border-color: var(--border);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .resume-nav-btn.is-expanded .resume-nav-label {
@@ -224,7 +223,6 @@ body.resume-editor-page {
   height: 100%;
   border-radius: inherit;
   background: #ef4444;
-  transition: width 0.2s ease, background-color 0.2s ease;
 }
 
 .resume-nav-btn[data-progress-level="medium"] .resume-nav-progress-fill {
@@ -257,12 +255,11 @@ body.resume-editor-page {
   border-radius: 12px;
   background: #ffffff;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-  transition: box-shadow 0.2s;
+  box-shadow: none;
 }
 
 .resume-section:focus-within {
-  box-shadow: 0 0 0 2px rgba(24,24,27,0.08), 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: none;
 }
 
 .resume-section.is-collapsed .resume-section-body {
@@ -316,12 +313,11 @@ body.resume-editor-page {
   flex-shrink: 0;
   border-radius: 4px;
   background: var(--border);
-  transition: transform 0.2s ease, background 0.15s;
 }
 
 .resume-section:not(.is-collapsed) .resume-section-toggle-icon {
   transform: rotate(90deg);
-  background: var(--text-main);
+  background: var(--primary);
   color: #fff;
 }
 
@@ -400,7 +396,6 @@ body.resume-editor-page {
   font-family: inherit;
   color: var(--text-main);
   background: #ffffff;
-  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .resume-textarea {
@@ -419,8 +414,8 @@ body.resume-editor-page {
 .resume-select:focus,
 .resume-textarea:focus {
   outline: none;
-  border-color: var(--text-main);
-  box-shadow: 0 0 0 2px rgba(24,24,27,0.1);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
 }
 
 /* ─── List Slots ─────────────────────────────────────────────────────────── */
@@ -615,3 +610,18 @@ body.resume-editor-page {
 .resume-editor-page .btn { min-height: 36px; padding: 8px 12px; }
 .resume-field.resume-field-compact { grid-column: auto; }
 .resume-field-compact .resume-textarea { min-height: 64px; }
+
+/* Keep the editor calm and immediate; the side panel retains its own feedback motion. */
+.resume-editor-page *,
+.resume-editor-page *::before,
+.resume-editor-page *::after {
+  animation: none !important;
+  scroll-behavior: auto !important;
+  transition: none !important;
+}
+
+.resume-editor-page .btn:hover:not(:disabled),
+.resume-editor-page .modal-content,
+.resume-editor-page .modal.open .modal-content {
+  transform: none;
+}

@@ -24,3 +24,33 @@ test("resume progress calculates percentages and the three color levels", () => 
 test("resume progress handles an empty category without division by zero", () => {
   assert.deepEqual({ ...context.getResumeProgress(0, 0) }, { filled: 0, total: 0, percentage: 0, level: "low" });
 });
+
+test("field progress only updates when empty state changes", () => {
+  const start = source.indexOf("function updateResumeNavProgressForControl(");
+  const end = source.indexOf("function renderResumeEditor(", start);
+  const calls = [];
+  const progressContext = vm.createContext({
+    resumeProgressBySection: new Map([["personal", { filled: 0, total: 2 }]]),
+    editorSectionKey: (key) => key,
+    hasMeaningfulResumeValue: (value) => String(value || "").trim().length > 0,
+    updateResumeNavProgress: (...args) => calls.push(args),
+  });
+  vm.runInContext(source.slice(start, end), progressContext);
+
+  const control = {
+    value: "Alice",
+    dataset: { resumePath: "personal.fullName", resumeFilled: "false" },
+  };
+  progressContext.updateResumeNavProgressForControl(control);
+  assert.equal(progressContext.resumeProgressBySection.get("personal").filled, 1);
+  assert.equal(calls.length, 1);
+
+  control.value = "Alice Chen";
+  progressContext.updateResumeNavProgressForControl(control);
+  assert.equal(calls.length, 1);
+
+  control.value = "";
+  progressContext.updateResumeNavProgressForControl(control);
+  assert.equal(progressContext.resumeProgressBySection.get("personal").filled, 0);
+  assert.equal(calls.length, 2);
+});

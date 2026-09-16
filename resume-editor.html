@@ -14,6 +14,7 @@
           <img class="logo-icon" src="icons/icon128.png" alt="AI 简历填表助手图标" />
           <div class="editor-header-copy">
             <h1>简历配置</h1>
+            <p>维护一份资料，快速复用到不同申请表单</p>
           </div>
         </div>
         <div class="editor-toolbar">
@@ -28,6 +29,7 @@
               <button class="btn btn-outline btn-sm" id="reloadResumeBtn">重新加载</button>
             </div>
           </details>
+          <span class="editor-status" id="pageStatus" data-status="info" role="status" aria-live="polite" hidden></span>
           <button class="btn btn-primary" id="saveResumeBtn">保存</button>
           <details class="editor-menu editor-management">
             <summary class="btn btn-outline btn-sm">简历管理</summary>
@@ -43,7 +45,6 @@
       </header>
 
       <main class="editor-main">
-        <div class="tip" id="pageStatus" role="status" aria-live="polite">正在加载标准简历...</div>
         <div class="resume-editor-layout resume-editor-layout-wide">
           <aside class="resume-nav" id="resumeNav"></aside>
           <div class="resume-form-host" id="resumeFormHost"></div>
@@ -72,12 +73,12 @@
 
     <input type="file" id="importTemplatesFile" accept="application/json" hidden />
 
-    <div class="modal" id="templateNameModal">
+    <div class="modal" id="templateNameModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="templateNameModalTitle">
       <div class="modal-backdrop" id="closeTemplateNameBackdrop"></div>
       <div class="modal-content">
         <div class="modal-header">
           <h3 id="templateNameModalTitle">新建模板</h3>
-          <button class="icon-btn" id="closeTemplateNameBtn">
+          <button class="icon-btn" id="closeTemplateNameBtn" type="button" aria-label="关闭模板名称窗口">
             <svg
               width="20"
               height="20"
@@ -103,7 +104,7 @@
               placeholder="例如：测开 / 游戏开发 / 普通开发"
             />
           </div>
-          <div class="config-status" id="templateNameStatus"></div>
+          <div class="config-status" id="templateNameStatus" role="status" aria-live="polite"></div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-primary btn-block" id="saveTemplateNameBtn">保存</button>

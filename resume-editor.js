@@ -63,15 +63,30 @@ let resumeProfile = schema.createEmptyResumeProfile();
 let templates = [];
 let activeTemplateId = null;
 let isLoadingResume = false;
+let resumeLoadRequestId = 0;
 let templateNameMode = null;
+let pageStatusTimer = null;
 const collapsedResumeSections = new Set();
+const resumeProgressBySection = new Map();
+const EDITOR_SECTIONS = buildEditorSections();
 
 document.addEventListener("DOMContentLoaded", async () => {
-  initResumeEditorEvents();
-  initTemplateEvents();
-  resumeImportTextEl.addEventListener("input", markResumeDirty);
-  await initModels();
-  await loadResumeProfile();
+  try {
+    initResumeEditorEvents();
+    initTemplateEvents();
+    resumeImportTextEl.addEventListener("input", () => markResumeDirty());
+    await initModels();
+    await loadResumeProfile();
+  } catch (error) {
+    console.error("[resume-editor] 初始化失败:", error);
+    updatePageStatus("error", `初始化失败：${error.message}`);
+  }
+});
+
+window.addEventListener("beforeunload", (event) => {
+  if (!isResumeDirty) return;
+  event.preventDefault();
+  event.returnValue = "";
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -123,6 +138,20 @@ function initResumeEditorEvents() {
       );
     }
   });
+
+  const handleFieldChange = (event) => {
+    const control = event.target;
+    if (!control.matches?.("[data-resume-path]")) return;
+    markResumeDirty(control.dataset.resumePath, control);
+  };
+  resumeFormHost.addEventListener("input", handleFieldChange);
+  resumeFormHost.addEventListener("change", handleFieldChange);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && templateNameModal.classList.contains("open")) {
+      closeTemplateNameModal();
+    }
+  });
 }
 
 function initTemplateEvents() {
@@ -165,13 +194,23 @@ function renderTemplateSelectors() {
 
 async function switchActiveTemplate(id) {
   if (!id || id === activeTemplateId) return;
-
-  if (isResumeDirty) {
-    await persistResumeProfile({ silent: true });
+  const previousId = activeTemplateId;
+  resumeTemplateSelect.disabled = true;
+  try {
+    if (isResumeDirty) {
+      await persistResumeProfile({ silent: true });
+    }
+    await resumeStorage.setActiveTemplateId(id);
+    await loadResumeProfile();
+  } catch (error) {
+    if (previousId) {
+      await resumeStorage.setActiveTemplateId(previousId).catch(() => {});
+    }
+    resumeTemplateSelect.value = previousId;
+    updatePageStatus("error", `切换失败：${error.message}`);
+  } finally {
+    resumeTemplateSelect.disabled = false;
   }
-
-  await resumeStorage.setActiveTemplateId(id);
-  await loadResumeProfile();
 }
 
 function openTemplateNameModal(mode) {
@@ -189,12 +228,16 @@ function openTemplateNameModal(mode) {
   templateNameStatus.textContent = "";
   templateNameStatus.className = "config-status";
   templateNameModal.classList.add("open");
+  templateNameModal.setAttribute("aria-hidden", "false");
   setTimeout(() => templateNameInput.focus(), 50);
 }
 
 function closeTemplateNameModal() {
+  const mode = templateNameMode;
   templateNameModal.classList.remove("open");
+  templateNameModal.setAttribute("aria-hidden", "true");
   templateNameMode = null;
+  (mode === "rename" ? renameTemplateBtn : newTemplateBtn)?.focus?.();
 }
 
 async function handleSaveTemplateName() {
@@ -340,11 +383,12 @@ function resetCollapsedResumeSections() {
 }
 
 async function loadResumeProfile() {
-  if (isLoadingResume) return;
+  const requestId = ++resumeLoadRequestId;
   isLoadingResume = true;
 
   try {
     const state = await resumeStorage.loadTemplateState();
+    if (requestId !== resumeLoadRequestId) return;
     templates = state.templates;
     activeTemplateId = state.activeTemplateId;
     renderTemplateSelectors();
@@ -358,21 +402,22 @@ async function loadResumeProfile() {
     renderResumeEditor(resumeProfile);
     isResumeDirty = false;
     saveResumeBtn.disabled = true;
-    updatePageStatus(
-      "info",
-      `已加载「${active?.name || "未命名"}」`
-    );
+    clearPageStatus();
   } finally {
-    isLoadingResume = false;
+    if (requestId === resumeLoadRequestId) isLoadingResume = false;
   }
 }
 
-function getEditorSections() {
+function buildEditorSections() {
   return schema.sections.filter((section) => !["certificates", "languages"].includes(section.key)).map((section) =>
     section.key === "skills"
       ? { ...section, label: "技能证书", children: [section, schema.getSectionDefinition("certificates"), schema.getSectionDefinition("languages")] }
       : { ...section, children: [section] }
   );
+}
+
+function getEditorSections() {
+  return EDITOR_SECTIONS;
 }
 
 function editorSectionKey(key) {
@@ -400,20 +445,41 @@ function updateResumeNavProgress(sectionKey, filledFields, totalFields) {
   nav.querySelector(".resume-nav-progress").setAttribute("aria-valuenow", String(progress.percentage));
 }
 
-function updateResumeNavProgressFromForm() {
+function updateResumeNavProgressFromForm({ updateNavigation = true } = {}) {
+  resumeProgressBySection.clear();
   const progressBySection = new Map();
   for (const control of resumeFormHost.querySelectorAll("[data-resume-path]")) {
     const sectionKey = editorSectionKey(String(control.dataset.resumePath || "").split(".")[0]);
     const progress = progressBySection.get(sectionKey) || { filled: 0, total: 0 };
     progress.total += 1;
-    if (hasMeaningfulResumeValue(control.value)) progress.filled += 1;
+    const isFilled = hasMeaningfulResumeValue(control.value);
+    control.dataset.resumeFilled = String(isFilled);
+    if (isFilled) progress.filled += 1;
     progressBySection.set(sectionKey, progress);
   }
 
   for (const section of getEditorSections()) {
     const progress = progressBySection.get(section.key) || { filled: 0, total: 0 };
-    updateResumeNavProgress(section.key, progress.filled, progress.total);
+    resumeProgressBySection.set(section.key, progress);
+    if (updateNavigation) {
+      updateResumeNavProgress(section.key, progress.filled, progress.total);
+    }
   }
+}
+
+function updateResumeNavProgressForControl(control) {
+  if (!control?.dataset?.resumePath) return;
+  const sectionKey = editorSectionKey(control.dataset.resumePath.split(".")[0]);
+  const progress = resumeProgressBySection.get(sectionKey);
+  if (!progress) return;
+
+  const wasFilled = control.dataset.resumeFilled === "true";
+  const isFilled = hasMeaningfulResumeValue(control.value);
+  if (wasFilled === isFilled) return;
+
+  control.dataset.resumeFilled = String(isFilled);
+  progress.filled = Math.max(0, Math.min(progress.total, progress.filled + (isFilled ? 1 : -1)));
+  updateResumeNavProgress(sectionKey, progress.filled, progress.total);
 }
 
 function renderResumeEditor(profile) {
@@ -434,7 +500,7 @@ function renderResumeEditor(profile) {
       <span class="resume-nav-label">${escapeHtml(section.label)}</span>
       <span class="resume-nav-percent">${progress.percentage}%</span>
     </span>
-    <span class="resume-nav-meta"><span class="resume-nav-count">${progress.filled}/${progress.total}
+    <span class="resume-nav-meta"><span class="resume-nav-count">${progress.filled}/${progress.total}</span></span>
     <span class="resume-nav-progress" role="progressbar" aria-label="${escapeHtml(section.label)}填充进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.percentage}">
       <span class="resume-nav-progress-fill" style="width: ${progress.percentage}%"></span>
     </span>`;
@@ -490,6 +556,7 @@ function renderResumeEditor(profile) {
     panel.appendChild(body);
     resumeFormHost.appendChild(panel);
   }
+  updateResumeNavProgressFromForm({ updateNavigation: false });
 }
 
 function renderFieldGrid(fields, profile, prefix) {
@@ -513,7 +580,13 @@ function renderFieldGrid(fields, profile, prefix) {
 }
 
 function createFieldControl(field, value, path) {
-  if (field.input === "date") return ResumeDateControl.create(document, field, value, path, markResumeDirty);
+  if (field.input === "date") {
+    let dateControl;
+    dateControl = ResumeDateControl.create(document, field, value, path, () => {
+      markResumeDirty(path, dateControl);
+    });
+    return dateControl;
+  }
   let control;
 
   if (field.input === "textarea") {
@@ -540,15 +613,16 @@ function createFieldControl(field, value, path) {
     control.placeholder = field.placeholder;
   }
 
-  control.addEventListener("input", markResumeDirty);
-  control.addEventListener("change", markResumeDirty);
   return control;
 }
 
-function markResumeDirty() {
+function markResumeDirty(path = "", control = null) {
   isResumeDirty = true;
   saveResumeBtn.disabled = false;
-  updateResumeNavProgressFromForm();
+  if (path) {
+    const target = control || resumeFormHost.querySelector(`[data-resume-path="${path}"]`);
+    updateResumeNavProgressForControl(target);
+  }
   updatePageStatus("warning", "未保存");
 }
 
@@ -649,7 +723,7 @@ function openResumeSection(sectionKey, { scrollIntoView = false } = {}) {
 
   if (scrollIntoView) {
     const sectionEl = document.getElementById(`resume-section-${sectionKey}`);
-    sectionEl?.scrollIntoView({ behavior: "smooth", block: "start" });
+    sectionEl?.scrollIntoView({ behavior: "auto", block: "start" });
   }
 }
 
@@ -744,7 +818,7 @@ saveResumeBtn.addEventListener("click", async () => {
 reloadResumeBtn.addEventListener("click", async () => {
   if (isResumeDirty && !window.confirm("重新加载会放弃未保存的修改，继续吗？")) return;
   await loadResumeProfile();
-  updatePageStatus("info", "已从扩展存储重新加载标准简历。");
+  updatePageStatus("success", "已重新加载");
 });
 
 importResumeBtn.addEventListener("click", async () => {
@@ -1043,17 +1117,37 @@ function extractBalancedJson(text) {
   return "";
 }
 
+function clearPageStatus() {
+  if (pageStatusTimer) {
+    clearTimeout(pageStatusTimer);
+    pageStatusTimer = null;
+  }
+  if (!pageStatusEl) return;
+  pageStatusEl.hidden = true;
+  pageStatusEl.textContent = "";
+  pageStatusEl.title = "";
+}
+
 function updatePageStatus(type, text) {
   if (!pageStatusEl) return;
+  if (!pageStatusEl.hidden && pageStatusEl.dataset.status === type && pageStatusEl.textContent === text) {
+    return;
+  }
+  if (pageStatusTimer) clearTimeout(pageStatusTimer);
   pageStatusEl.textContent = text;
-  pageStatusEl.style.borderColor =
-    type === "error"
-      ? "rgba(239,68,68,0.28)"
-      : type === "success"
-        ? "rgba(16,185,129,0.28)"
-        : type === "warning"
-          ? "rgba(245,158,11,0.28)"
-          : "var(--border)";
+  pageStatusEl.title = text;
+  pageStatusEl.dataset.status = type || "info";
+  pageStatusEl.hidden = false;
+  pageStatusTimer = null;
+  if (type === "success") {
+    pageStatusTimer = setTimeout(() => {
+      if (pageStatusEl.dataset.status === type && pageStatusEl.textContent === text) {
+        pageStatusTimer = null;
+        if (isResumeDirty) updatePageStatus("warning", "未保存");
+        else clearPageStatus();
+      }
+    }, 2500);
+  }
 }
 
 function escapeHtml(text) {

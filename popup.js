@@ -97,8 +97,10 @@ let resumeProfile = schema.createEmptyResumeProfile();
 let templates = [];
 let activeTemplateId = null;
 let isLoadingResume = false;
+let resumeLoadRequestId = 0;
 let logProjectRootHandle = null;
 let activeFillSession = null;
+const dialogTriggers = new WeakMap();
 
 const FILL_ACTIONS = {
   overwritePage: {
@@ -131,13 +133,19 @@ const FILL_ACTIONS = {
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
-  initModalEvents();
-  initLogExportEvents();
-  initTemplateEvents();
-  await initModels();
-  await refreshLogExportStatus();
-  await loadResumeProfile();
-  updateStartFillAvailability();
+  try {
+    initModalEvents();
+    initLogExportEvents();
+    initTemplateEvents();
+    await initModels();
+    await refreshLogExportStatus();
+    await loadResumeProfile();
+    updateStartFillAvailability();
+  } catch (error) {
+    console.error("[popup] 初始化失败:", error);
+    addLog("error", `初始化失败：${error.message}`);
+    updateStatus("error", "初始化失败");
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -175,11 +183,20 @@ function initModalEvents() {
   addModelBtn.addEventListener("click", () => openEditModal());
   closeEditBtn.addEventListener("click", closeEditModal);
   closeEditBackdrop.addEventListener("click", closeEditModal);
+  modelList.addEventListener("click", handleModelListClick);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (editModelModal.classList.contains("open")) closeEditModal();
+    else if (settingsModal.classList.contains("open")) closeModal();
+  });
 
   toggleEditApiKeyBtn.addEventListener("click", () => {
     const nextType = editApiKeyInput.type === "password" ? "text" : "password";
     editApiKeyInput.type = nextType;
-    toggleEditApiKeyBtn.style.opacity = nextType === "text" ? "1" : "0.6";
+    const isVisible = nextType === "text";
+    toggleEditApiKeyBtn.setAttribute("aria-pressed", String(isVisible));
+    toggleEditApiKeyBtn.setAttribute("aria-label", isVisible ? "隐藏 API Key" : "显示 API Key");
   });
 }
 
@@ -356,21 +373,24 @@ async function finalizeFillSession({ status, stats, errorMessage = "" } = {}) {
 }
 
 function openModal() {
-  settingsModal.classList.add("open");
-  renderModelList();
+  openDialog(settingsModal, openSettingsBtn);
+  renderModelList().catch((error) => addLog("error", `读取模型失败：${error.message}`));
 }
 
 function closeModal() {
-  settingsModal.classList.remove("open");
+  closeDialog(settingsModal);
 }
 
 function openEditModal(modelId = null) {
   editingModelId = modelId;
-  editModelModal.classList.add("open");
+  settingsModal.setAttribute("aria-hidden", "true");
+  openDialog(editModelModal, document.activeElement);
 
   if (modelId) {
     editModalTitle.textContent = "编辑模型";
-    loadModelForEdit(modelId);
+    loadModelForEdit(modelId).catch((error) => {
+      showEditStatus("error", `读取模型失败：${error.message}`);
+    });
     return;
   }
 
@@ -382,8 +402,28 @@ function openEditModal(modelId = null) {
 }
 
 function closeEditModal() {
-  editModelModal.classList.remove("open");
+  if (settingsModal.classList.contains("open")) {
+    settingsModal.setAttribute("aria-hidden", "false");
+  }
+  closeDialog(editModelModal);
   editingModelId = null;
+}
+
+function openDialog(dialog, trigger) {
+  dialogTriggers.set(dialog, trigger instanceof HTMLElement ? trigger : document.activeElement);
+  dialog.classList.add("open");
+  dialog.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => {
+    dialog.querySelector("input, select, textarea, button")?.focus();
+  });
+}
+
+function closeDialog(dialog) {
+  dialog.classList.remove("open");
+  dialog.setAttribute("aria-hidden", "true");
+  const trigger = dialogTriggers.get(dialog);
+  dialogTriggers.delete(dialog);
+  trigger?.focus?.();
 }
 
 async function initModels() {
@@ -392,19 +432,23 @@ async function initModels() {
 
 async function getAllModels() {
   const state = await modelStorage.loadModelState();
-  return [modelStorage.buildBuiltinModel(state.builtinOverride), ...state.models];
+  return getModelsFromState(state);
 }
 
 async function getActiveModel() {
   const state = await modelStorage.loadModelState();
-  const models = await getAllModels();
+  const models = getModelsFromState(state);
   const activeId = state.activeModelId || BUILTIN_MODEL.id;
   return models.find((model) => model.id === activeId) || BUILTIN_MODEL;
 }
 
+function getModelsFromState(state) {
+  return [modelStorage.buildBuiltinModel(state.builtinOverride), ...state.models];
+}
+
 async function renderModelList() {
-  const models = await getAllModels();
   const state = await modelStorage.loadModelState();
+  const models = getModelsFromState(state);
   const activeId = state.activeModelId || BUILTIN_MODEL.id;
 
   modelList.innerHTML = models
@@ -422,13 +466,13 @@ async function renderModelList() {
             <div class="model-meta">${escapeHtml(model.model)}</div>
           </div>
           <div class="model-actions">
-              <button class="icon-btn edit-model-btn" data-model-id="${escapeHtml(model.id)}">
+              <button class="icon-btn edit-model-btn" type="button" aria-label="编辑 ${escapeHtml(model.name)}" data-model-id="${escapeHtml(model.id)}">
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
             </button>
             ${
               model.builtin
                 ? ""
-                : `<button class="icon-btn delete-model-btn" data-model-id="${escapeHtml(model.id)}">
+                : `<button class="icon-btn delete-model-btn" type="button" aria-label="删除 ${escapeHtml(model.name)}" data-model-id="${escapeHtml(model.id)}">
                      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                    </button>`
             }
@@ -438,59 +482,45 @@ async function renderModelList() {
     )
     .join("");
 
-  document.querySelectorAll(".model-item").forEach((item) => {
-    item.addEventListener("click", async (event) => {
-      if (
-        event.target.closest(".edit-model-btn") ||
-        event.target.closest(".delete-model-btn")
-      ) {
-        return;
-      }
+}
 
-      const modelId = item.dataset.modelId;
-      const model = models.find((entry) => entry.id === modelId);
-      await modelStorage.saveActiveModelId(modelId);
-      addLog("success", `已切换模型：${model?.name || modelId}`);
-      closeModal();
-    });
-  });
+async function handleModelListClick(event) {
+  const editButton = event.target.closest(".edit-model-btn");
+  if (editButton) {
+    openEditModal(editButton.dataset.modelId);
+    return;
+  }
 
-  document.querySelectorAll(".model-radio").forEach((radio) => {
-    radio.addEventListener("change", async (event) => {
-      event.stopPropagation();
-      await modelStorage.saveActiveModelId(event.target.value);
-      renderModelList();
-    });
-  });
-
-  document.querySelectorAll(".edit-model-btn").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openEditModal(event.currentTarget.dataset.modelId);
-    });
-  });
-
-  document.querySelectorAll(".delete-model-btn").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      const modelId = event.currentTarget.dataset.modelId;
-      if (!confirm("确定要删除这个模型吗？")) return;
-
+  const deleteButton = event.target.closest(".delete-model-btn");
+  if (deleteButton) {
+    const modelId = deleteButton.dataset.modelId;
+    if (!confirm("确定要删除这个模型吗？")) return;
+    try {
       const state = await modelStorage.loadModelState();
-      const modelsWithoutCurrent = state.models.filter(
-        (model) => model.id !== modelId
-      );
-
       await modelStorage.saveModelState({
-        models: modelsWithoutCurrent,
+        models: state.models.filter((model) => model.id !== modelId),
         builtinOverride: state.builtinOverride,
       });
       if (state.activeModelId === modelId) {
         await modelStorage.saveActiveModelId(BUILTIN_MODEL.id);
       }
-      renderModelList();
-    });
-  });
+      await renderModelList();
+    } catch (error) {
+      addLog("error", `删除模型失败：${error.message}`);
+    }
+    return;
+  }
+
+  const item = event.target.closest(".model-item");
+  if (!item) return;
+  try {
+    await modelStorage.saveActiveModelId(item.dataset.modelId);
+    const name = item.querySelector(".model-name")?.childNodes[0]?.textContent?.trim();
+    addLog("success", `已切换模型：${name || item.dataset.modelId}`);
+    closeModal();
+  } catch (error) {
+    addLog("error", `切换模型失败：${error.message}`);
+  }
 }
 
 async function loadModelForEdit(modelId) {
@@ -583,20 +613,29 @@ function isModelConfigured(model) {
 
 function initTemplateEvents() {
   fillTemplateSelect.addEventListener("change", async () => {
+    const previousId = activeTemplateId;
+    fillTemplateSelect.disabled = true;
     try {
       await resumeStorage.setActiveTemplateId(fillTemplateSelect.value);
       await loadResumeProfile();
     } catch (error) {
-      addLog("error", error.message);
+      if (previousId) {
+        await resumeStorage.setActiveTemplateId(previousId).catch(() => {});
+      }
+      fillTemplateSelect.value = previousId;
+      addLog("error", `切换简历失败：${error.message}`);
+    } finally {
+      fillTemplateSelect.disabled = isFilling;
     }
   });
 }
 
 async function loadResumeProfile() {
-  if (isLoadingResume) return;
+  const requestId = ++resumeLoadRequestId;
   isLoadingResume = true;
   try {
     const state = await resumeStorage.loadTemplateState();
+    if (requestId !== resumeLoadRequestId) return;
     templates = state.templates;
     activeTemplateId = state.activeTemplateId;
     fillTemplateSelect.replaceChildren();
@@ -611,7 +650,7 @@ async function loadResumeProfile() {
     resumeProfile = schema.getFillProfile(active?.profile || {});
     updateStartFillAvailability();
   } finally {
-    isLoadingResume = false;
+    if (requestId === resumeLoadRequestId) isLoadingResume = false;
   }
 }
 
@@ -741,9 +780,16 @@ async function runFill(actionKey) {
 }
 
 clearMappingCacheBtn.addEventListener("click", async () => {
-  await chrome.storage.local.remove(MAPPING_CACHE_KEY);
-  addLog("success", "字段映射缓存已清空");
-  fillTipEl.hidden = true;
+  clearMappingCacheBtn.disabled = true;
+  try {
+    await chrome.storage.local.remove(MAPPING_CACHE_KEY);
+    addLog("success", "字段映射缓存已清空");
+    fillTipEl.hidden = true;
+  } catch (error) {
+    addLog("error", `清理缓存失败：${error.message}`);
+  } finally {
+    clearMappingCacheBtn.disabled = false;
+  }
 });
 
 function updateFillStats(fieldCount, mappedCount, filledCount) {
