@@ -114,7 +114,7 @@
     },
     {
       key: "contactAndLocation",
-      label: "联系方式与地址",
+      label: "联系方式",
       type: "group",
       fields: [
         { key: "currentAddressLine1", label: "现居地址 1", input: "text", placeholder: "浦东新区世纪大道 1 号" },
@@ -126,6 +126,13 @@
         { key: "emergencyContactName", label: "紧急联系人姓名", input: "text", placeholder: "李四" },
         { key: "emergencyContactPhone", label: "紧急联系人电话", input: "tel", placeholder: "13700137000" },
         { key: "timezone", label: "当前时区", input: "text", placeholder: "Asia/Shanghai" },
+        { key: "linkedinUrl", label: "LinkedIn 链接", input: "url", placeholder: "https://linkedin.com/in/..." },
+        { key: "githubUrl", label: "GitHub 链接", input: "url", placeholder: "https://github.com/..." },
+        { key: "portfolioUrl", label: "作品集链接", input: "url", placeholder: "https://..." },
+        { key: "websiteUrl", label: "个人网站", input: "url", placeholder: "https://..." },
+        { key: "blogUrl", label: "博客链接", input: "url", placeholder: "https://blog.example.com" },
+        { key: "leetcodeUrl", label: "LeetCode 链接", input: "url", placeholder: "https://leetcode.com/..." },
+        { key: "otherProfileLinks", label: "其他主页链接", input: "textarea", placeholder: "知乎 / X / 哔哩哔哩 / Kaggle / Behance ..." },
       ],
     },
     {
@@ -145,74 +152,6 @@
         { key: "sponsorshipNeeded", label: "是否需要签证担保", input: "select", options: ["", "是", "否"] },
         { key: "driversLicense", label: "是否持有驾照", input: "select", options: ["", "是", "否"] },
         { key: "securityClearance", label: "安全许可", input: "text", placeholder: "无 / 选填" },
-      ],
-    },
-    {
-      key: "onlinePresence",
-      label: "在线资料",
-      type: "group",
-      fields: [
-        { key: "linkedinUrl", label: "LinkedIn 链接", input: "url", placeholder: "https://linkedin.com/in/..." },
-        { key: "githubUrl", label: "GitHub 链接", input: "url", placeholder: "https://github.com/..." },
-        { key: "portfolioUrl", label: "作品集链接", input: "url", placeholder: "https://..." },
-        { key: "websiteUrl", label: "个人网站", input: "url", placeholder: "https://..." },
-        { key: "blogUrl", label: "博客链接", input: "url", placeholder: "https://blog.example.com" },
-        { key: "leetcodeUrl", label: "LeetCode 链接", input: "url", placeholder: "https://leetcode.com/..." },
-        { key: "otherProfileLinks", label: "其他主页链接", input: "textarea", placeholder: "知乎 / X / 哔哩哔哩 / Kaggle / Behance ..." },
-      ],
-    },
-    {
-      key: "jobPreferences",
-      label: "求职偏好",
-      type: "group",
-      fields: [
-        { key: "targetRole", label: "目标岗位", input: "text", placeholder: "高级后端工程师" },
-        { key: "targetLevel", label: "目标职级", input: "text", placeholder: "高级 / 专家 / Leader" },
-        { key: "targetDepartment", label: "目标部门", input: "text", placeholder: "技术 / 产品 / AI" },
-        { key: "targetIndustry", label: "目标行业", input: "text", placeholder: "AI / SaaS / 电商" },
-        { key: "expectedCity", label: "期望城市", input: "text", placeholder: "上海" },
-        { key: "expectedCountry", label: "期望国家", input: "text", placeholder: "中国" },
-        { key: "preferredLocations", label: "可接受工作地点", input: "textarea", placeholder: "上海、北京、杭州、远程" },
-        { key: "expectedSalary", label: "期望薪资", input: "text", placeholder: "30k-40k / 月" },
-        { key: "currentCompensation", label: "当前薪资", input: "text", placeholder: "保密" },
-        { key: "noticePeriod", label: "到岗周期", input: "text", placeholder: "30 天" },
-        { key: "availableDate", label: "可入职日期", input: "date" },
-        {
-          key: "employmentType",
-          label: "期望用工类型",
-          input: "select",
-          options: ["", "全职", "兼职", "实习", "合同", "自由职业"],
-        },
-        {
-          key: "willingToRelocate",
-          label: "是否接受异地/搬迁",
-          input: "select",
-          options: ["", "是", "否"],
-        },
-        {
-          key: "willingToTravel",
-          label: "是否接受出差",
-          input: "select",
-          options: ["", "是", "否"],
-        },
-        {
-          key: "remotePreference",
-          label: "办公方式偏好",
-          input: "select",
-          options: ["", "现场办公", "混合办公", "远程办公", "灵活"],
-        },
-        {
-          key: "preferredInterviewLanguage",
-          label: "面试语言偏好",
-          input: "text",
-          placeholder: "中文 / 英文",
-        },
-        {
-          key: "preferredStartTime",
-          label: "理想入职时间",
-          input: "text",
-          placeholder: "立即 / 下月初",
-        },
       ],
     },
     {
@@ -442,11 +381,9 @@
       slots: 10,
       itemLabel: "成果",
       fields: [
-        { key: "name", label: "成果名称", input: "textarea" },
-        { key: "type", label: "类型", input: "select", options: ["", "专利", "论文", "其他"] },
-        { key: "date", label: "日期", input: "date" },
-        { key: "affiliation", label: "归属", input: "text" },
-        { key: "url", label: "链接", input: "url", placeholder: "https://..." },
+        { key: "name", label: "成果名称", input: "text" },
+        { key: "description", label: "成果简介", input: "textarea" },
+        { key: "date", label: "成果日期", input: "date" },
       ],
     },
     {
@@ -476,9 +413,6 @@
     identityAndAuthorization: {
       personalIdNumber: ["idNumber", "idCardNumber", "identityCardNumber", "certificateNum", "身份证号"],
       personalIdType: ["idType", "certificateType"],
-    },
-    jobPreferences: {
-      expectedSalary: ["expectedMonthlySalary", "expectedMonthSalary", "monthlySalary", "salaryExpectation", "期望月薪"],
     },
     educations: {
       educationType: ["educationCategory", "educationNature", "学历类型"],
@@ -778,15 +712,33 @@
 
   function normalizeResumeProfile(input) {
     const source = clone(input && typeof input === "object" ? input : {});
+    const legacyOnlinePresence =
+      source.onlinePresence && typeof source.onlinePresence === "object"
+        ? source.onlinePresence
+        : {};
+    const contactAndLocation =
+      source.contactAndLocation && typeof source.contactAndLocation === "object"
+        ? source.contactAndLocation
+        : {};
+
+    for (const [fieldKey, value] of Object.entries(legacyOnlinePresence)) {
+      if (!hasRawValue(contactAndLocation[fieldKey]) && hasRawValue(value)) {
+        contactAndLocation[fieldKey] = value;
+      }
+    }
+    source.contactAndLocation = contactAndLocation;
+    delete source.onlinePresence;
+    delete source.jobPreferences;
+
     // Migrate whole legacy text without guessing individual titles or dates.
-    for (const [key, type] of [["publications", "论文"], ["patents", "专利"]]) {
+    for (const key of ["publications", "patents"]) {
       const name = normalizeFieldValue({}, source.additional?.[key]);
       if (!name) continue;
       const items = Array.isArray(source.personalAchievements) ? source.personalAchievements : [];
-      if (!items.some((item) => item?.name === name && item?.type === type)) {
+      if (!items.some((item) => item?.name === name)) {
         const emptyIndex = items.findIndex((item) => !isMeaningfulValue(item));
-        if (emptyIndex >= 0) items[emptyIndex] = { name, type };
-        else if (items.length < 10) items.push({ name, type });
+        if (emptyIndex >= 0) items[emptyIndex] = { name };
+        else if (items.length < 10) items.push({ name });
         else continue; // Preserve legacy text when the list is full.
       }
       source.personalAchievements = items;
@@ -958,7 +910,7 @@
   }
 
   window.ResumeSchema = {
-    version: 5,
+    version: 6,
     sections: SECTION_DEFINITIONS.filter((section) => !section.hidden),
     getFillProfile,
     clone,

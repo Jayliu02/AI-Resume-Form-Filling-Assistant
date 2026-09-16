@@ -31,7 +31,7 @@ test("keeps key process logs and failures visible in the side panel", () => {
     true
   );
   assert.equal(
-    visibility.shouldRenderLogInUi("warning", '[填充:失败] f_2 "开始时间" -> jobPreferences.availableDate'),
+    visibility.shouldRenderLogInUi("warning", '[填充:失败] f_2 "开始时间" -> educations.0.startDate'),
     true
   );
   assert.equal(visibility.shouldRenderLogInUi("error", "填充失败：AI 调用失败"), true);

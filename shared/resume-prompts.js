@@ -21,7 +21,7 @@
       "5. 日期按已知精度输出 YYYY、YYYY-MM 或 YYYY-MM-DD，不要补出未知的月份或日期。",
       "6. 下列枚举字段只能使用给定选项值：",
       optionRules,
-      "7. 论文、专利填写到 personalAchievements；affiliation 对论文表示发表期刊，对专利表示专利级别。不得猜测未知信息。",
+      "7. 论文、专利及其他个人成果填写到 personalAchievements；只提取成果名称、简介和已知精度的日期，不得猜测未知信息。",
       "",
       "固定 JSON 模板：",
       schema.createImportTemplateString(),

@@ -105,8 +105,7 @@
     { patterns: ["语言", "外语", "雅思", "托福", "cet"], sectionKey: "languages" },
     { patterns: ["校园", "学生", "社团", "社会", "志愿", "科研", "组织"], sectionKey: "campusExperiences" },
     { patterns: ["技能", "特长", "编程", "工具"], sectionKey: "skills" },
-    { patterns: ["偏好", "期望", "求职", "目标", "薪资"], sectionKey: "jobPreferences" },
-    { patterns: ["联系方式", "地址", "电话"], sectionKey: "contactAndLocation" },
+    { patterns: ["联系方式", "地址", "电话", "主页", "作品集", "linkedin", "github"], sectionKey: "contactAndLocation" },
     { patterns: ["证件", "身份", "护照", "户口"], sectionKey: "identityAndAuthorization" },
     { patterns: ["补充", "其他", "备注", "说明"], sectionKey: "additional" },
   ];

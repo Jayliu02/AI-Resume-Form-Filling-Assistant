@@ -33,7 +33,7 @@ test("formatMappingSummary shows source, reason, and transform", () => {
       label: "Available Start Date",
     },
     {
-      resumePath: "jobPreferences.availableDate",
+      resumePath: "educations.0.startDate",
       reason: "字段明确询问可入职日期",
       transform: { type: "date_part", part: "year" },
     },
@@ -42,7 +42,7 @@ test("formatMappingSummary shows source, reason, and transform", () => {
 
   assert.match(summary, /\[映射:ai\]/);
   assert.match(summary, /f_3/);
-  assert.match(summary, /jobPreferences.availableDate/);
+  assert.match(summary, /educations.0.startDate/);
   assert.match(summary, /transform=date_part\(year\)/);
   assert.match(summary, /reason="字段明确询问可入职日期"/);
 });

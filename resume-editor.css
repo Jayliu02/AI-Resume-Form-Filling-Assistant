@@ -189,10 +189,58 @@ body.resume-editor-page {
   line-height: 1.4;
 }
 
+.resume-nav-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.resume-nav-percent {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
 .resume-nav-meta {
   font-size: 11px;
   color: var(--text-light);
   line-height: 1.3;
+}
+
+.resume-nav-progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #fee2e2;
+}
+
+.resume-nav-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #ef4444;
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.resume-nav-btn[data-progress-level="medium"] .resume-nav-progress-fill {
+  background: #f59e0b;
+}
+
+.resume-nav-btn[data-progress-level="medium"] .resume-nav-progress {
+  background: #fef3c7;
+}
+
+.resume-nav-btn[data-progress-level="high"] .resume-nav-progress-fill {
+  background: #22c55e;
+}
+
+.resume-nav-btn[data-progress-level="high"] .resume-nav-progress {
+  background: #dcfce7;
 }
 
 /* ─── Form Host ──────────────────────────────────────────────────────────── */

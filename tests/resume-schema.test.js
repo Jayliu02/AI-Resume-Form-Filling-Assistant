@@ -145,10 +145,10 @@ test("legacy publications and patents migrate once without losing free text", ()
   const raw = { additional: { publications: "论文一，期刊 A\n论文二，期刊 B", patents: "专利一，授权", customNotes: "备注" } };
   const profile = schema.normalizeResumeProfile(raw);
   assert.equal(profile.personalAchievements.length, 2);
-  assert.equal(profile.personalAchievements[0].type, "论文");
   assert.equal(profile.personalAchievements[0].name, raw.additional.publications);
+  assert.equal(profile.personalAchievements[0].description, "");
   assert.equal(profile.personalAchievements[0].date, "");
-  assert.equal(profile.personalAchievements[1].type, "专利");
+  assert.equal(profile.personalAchievements[1].name, raw.additional.patents);
   assert.equal(profile.additional.customNotes, "备注");
   assert.equal(profile.additional.publications, undefined);
   assert.deepEqual(schema.normalizeResumeProfile(profile), profile);
@@ -159,7 +159,7 @@ test("legacy publications and patents migrate once without losing free text", ()
 
 test("full achievement lists preserve pending legacy text and migrate when room exists", () => {
   const schema = loadResumeSchema();
-  const input = { personalAchievements: Array.from({length: 10}, (_, i) => ({name: `论文 ${i}`, type: "论文"})), additional: {patents: "旧专利"} };
+  const input = { personalAchievements: Array.from({length: 10}, (_, i) => ({name: `论文 ${i}`})), additional: {patents: "旧专利"} };
   const full = schema.normalizeResumeProfile(input);
   assert.equal(full.personalAchievements.length, 10);
   assert.equal(full.additional.patents, "旧专利");
@@ -169,15 +169,43 @@ test("full achievement lists preserve pending legacy text and migrate when room 
   assert.equal(migrated.additional.patents, undefined);
 });
 
-test("achievements expose all mapping fields and preserve journal, level and date precision", () => {
+test("achievements expose only name, description and date while preserving date precision", () => {
   const schema = loadResumeSchema();
-  const raw = { personalAchievements: [{name: "研究论文", type: "论文", date: "2025年06月", affiliation: "Nature", url: "https://example.com/paper"}], skills: {primarySkills: "JS"}, languages: [{name: "英语"}], certificates: [{name: "CET-6"}] };
+  const raw = { personalAchievements: [{name: "研究论文", description: "多模态研究", type: "论文", date: "2025年06月", affiliation: "Nature", url: "https://example.com/paper"}], skills: {primarySkills: "JS"}, languages: [{name: "英语"}], certificates: [{name: "CET-6"}] };
   const profile = schema.normalizeResumeProfile(raw);
   assert.equal(profile.personalAchievements[0].date, "2025-06");
-  assert.equal(profile.personalAchievements[0].affiliation, "Nature");
+  assert.equal(profile.personalAchievements[0].description, "多模态研究");
+  assert.equal(profile.personalAchievements[0].type, undefined);
+  assert.equal(profile.personalAchievements[0].affiliation, undefined);
+  assert.equal(profile.personalAchievements[0].url, undefined);
   assert.equal(profile.skills.primarySkills, "JS");
   assert.equal(profile.languages[0].name, "英语");
   assert.equal(profile.certificates[0].name, "CET-6");
-  assert.equal(schema.getCatalogWithValues(profile).filter(f => f.hasValue && f.sectionKey === "personalAchievements").length, 5);
+  assert.equal(schema.getCatalogWithValues(profile).filter(f => f.hasValue && f.sectionKey === "personalAchievements").length, 3);
   assert.equal(JSON.parse(schema.createImportTemplateString()).personalAchievements.length, 10);
+});
+
+test("online profiles migrate into contact details and removed sections stay excluded", () => {
+  const schema = loadResumeSchema();
+  const profile = schema.normalizeResumeProfile({
+    contactAndLocation: { githubUrl: "https://github.com/new", websiteUrl: "" },
+    onlinePresence: {
+      githubUrl: "https://github.com/legacy",
+      websiteUrl: "https://legacy.example.com",
+      linkedinUrl: "https://linkedin.com/in/legacy",
+    },
+    jobPreferences: { targetRole: "工程师" },
+  });
+
+  assert.equal(profile.contactAndLocation.githubUrl, "https://github.com/new");
+  assert.equal(profile.contactAndLocation.websiteUrl, "https://legacy.example.com");
+  assert.equal(profile.contactAndLocation.linkedinUrl, "https://linkedin.com/in/legacy");
+  assert.equal(profile.onlinePresence, undefined);
+  assert.equal(profile.jobPreferences, undefined);
+  assert.equal(schema.sections.some((section) => section.key === "onlinePresence" || section.key === "jobPreferences"), false);
+  assert.equal(schema.getFieldCatalog().some((field) => field.path.startsWith("onlinePresence.") || field.path.startsWith("jobPreferences.")), false);
+  const template = JSON.parse(schema.createImportTemplateString());
+  assert.equal(template.onlinePresence, undefined);
+  assert.equal(template.jobPreferences, undefined);
+  assert.equal(template.contactAndLocation.githubUrl, "");
 });

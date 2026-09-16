@@ -370,13 +370,50 @@ async function loadResumeProfile() {
 function getEditorSections() {
   return schema.sections.filter((section) => !["certificates", "languages"].includes(section.key)).map((section) =>
     section.key === "skills"
-      ? { ...section, label: "技能与证书", children: [section, schema.getSectionDefinition("certificates"), schema.getSectionDefinition("languages")] }
+      ? { ...section, label: "技能证书", children: [section, schema.getSectionDefinition("certificates"), schema.getSectionDefinition("languages")] }
       : { ...section, children: [section] }
   );
 }
 
 function editorSectionKey(key) {
   return ["certificates", "languages"].includes(key) ? "skills" : key;
+}
+
+function getResumeProgress(filledFields, totalFields) {
+  const filled = Math.max(0, Number(filledFields) || 0);
+  const total = Math.max(0, Number(totalFields) || 0);
+  const percentage = total ? Math.min(100, Math.round((filled / total) * 100)) : 0;
+  const level = percentage <= 33 ? "low" : percentage <= 66 ? "medium" : "high";
+  return { filled, total, percentage, level };
+}
+
+function updateResumeNavProgress(sectionKey, filledFields, totalFields) {
+  const nav = resumeNavEl.querySelector(`[data-resume-nav="${sectionKey}"]`);
+  if (!nav) return;
+
+  const progress = getResumeProgress(filledFields, totalFields);
+  nav.classList.toggle("has-value", progress.filled > 0);
+  nav.dataset.progressLevel = progress.level;
+  nav.querySelector(".resume-nav-count").textContent = `${progress.filled}/${progress.total}`;
+  nav.querySelector(".resume-nav-percent").textContent = `${progress.percentage}%`;
+  nav.querySelector(".resume-nav-progress-fill").style.width = `${progress.percentage}%`;
+  nav.querySelector(".resume-nav-progress").setAttribute("aria-valuenow", String(progress.percentage));
+}
+
+function updateResumeNavProgressFromForm() {
+  const progressBySection = new Map();
+  for (const control of resumeFormHost.querySelectorAll("[data-resume-path]")) {
+    const sectionKey = editorSectionKey(String(control.dataset.resumePath || "").split(".")[0]);
+    const progress = progressBySection.get(sectionKey) || { filled: 0, total: 0 };
+    progress.total += 1;
+    if (hasMeaningfulResumeValue(control.value)) progress.filled += 1;
+    progressBySection.set(sectionKey, progress);
+  }
+
+  for (const section of getEditorSections()) {
+    const progress = progressBySection.get(section.key) || { filled: 0, total: 0 };
+    updateResumeNavProgress(section.key, progress.filled, progress.total);
+  }
 }
 
 function renderResumeEditor(profile) {
@@ -386,11 +423,21 @@ function renderResumeEditor(profile) {
   for (const section of getEditorSections()) {
     const isCollapsed = collapsedResumeSections.has(section.key);
     const filled = section.children.reduce((count, child) => count + (stats.get(child.key)?.filledFields || 0), 0);
+    const total = section.children.reduce((count, child) => count + (stats.get(child.key)?.totalFields || 0), 0);
+    const progress = getResumeProgress(filled, total);
     const nav = document.createElement("button");
     nav.type = "button";
     nav.className = `resume-nav-btn${filled ? " has-value" : ""}${isCollapsed ? "" : " is-expanded"}`;
     nav.dataset.resumeNav = section.key;
-    nav.innerHTML = `<span class="resume-nav-label">${escapeHtml(section.label)}</span>`;
+    nav.dataset.progressLevel = progress.level;
+    nav.innerHTML = `<span class="resume-nav-title-row">
+      <span class="resume-nav-label">${escapeHtml(section.label)}</span>
+      <span class="resume-nav-percent">${progress.percentage}%</span>
+    </span>
+    <span class="resume-nav-meta"><span class="resume-nav-count">${progress.filled}/${progress.total}
+    <span class="resume-nav-progress" role="progressbar" aria-label="${escapeHtml(section.label)}填充进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.percentage}">
+      <span class="resume-nav-progress-fill" style="width: ${progress.percentage}%"></span>
+    </span>`;
     resumeNavEl.appendChild(nav);
 
     const panel = document.createElement("section");
@@ -448,8 +495,6 @@ function renderResumeEditor(profile) {
 function renderFieldGrid(fields, profile, prefix) {
   const grid = document.createElement("div");
   grid.className = "resume-fields-grid";
-  const labels = {};
-  const controls = {};
   for (const field of fields) {
     const path = `${prefix}.${field.key}`;
     const wrapper = document.createElement("div");
@@ -463,15 +508,6 @@ function renderFieldGrid(fields, profile, prefix) {
     wrapper.appendChild(label);
     wrapper.appendChild(control);
     grid.appendChild(wrapper);
-    labels[field.key] = label;
-    controls[field.key] = control;
-  }
-  if (prefix.startsWith("personalAchievements.")) {
-    const updateAffiliation = () => {
-      labels.affiliation.textContent = controls.type.value === "论文" ? "发表期刊" : controls.type.value === "专利" ? "专利级别" : "归属";
-    };
-    controls.type.addEventListener("change", updateAffiliation);
-    updateAffiliation();
   }
   return grid;
 }
@@ -512,6 +548,7 @@ function createFieldControl(field, value, path) {
 function markResumeDirty() {
   isResumeDirty = true;
   saveResumeBtn.disabled = false;
+  updateResumeNavProgressFromForm();
   updatePageStatus("warning", "未保存");
 }
 
