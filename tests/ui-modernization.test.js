@@ -55,6 +55,19 @@ test("dialogs expose accessible semantics and editor motion is minimal", () => {
   assert.doesNotMatch(sourceForEditor(), /behavior: "smooth"/);
 });
 
+test("resume fields keep related date ranges aligned and stack on narrow screens", () => {
+  const schemaSource = read("shared/resume-schema.js");
+  const editorSource = read("resume-editor.js");
+  const editorCss = read("resume-editor.css");
+
+  assert.match(schemaSource, /key: "startDate", label: "入学时间", input: "date", rowStart: true/);
+  assert.match(schemaSource, /key: "startDate", label: "入职时间", input: "date", rowStart: true/);
+  assert.match(schemaSource, /key: "issueDate", label: "发证日期", input: "date", rowStart: true/);
+  assert.match(editorSource, /field\.rowStart \? " resume-field-row-start"/);
+  assert.match(editorCss, /\.resume-field-row-start\s*{[^}]+grid-column-start:\s*1/s);
+  assert.match(editorCss, /@media \(max-width: 640px\)[\s\S]+\.resume-field-row-start\s*{[^}]+grid-column-start:\s*auto/s);
+});
+
 function sourceForEditor() {
   return read("resume-editor.js");
 }

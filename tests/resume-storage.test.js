@@ -4,13 +4,16 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-function loadResumeStorage() {
-  const source = fs.readFileSync(
-    path.join(__dirname, "../shared/resume-storage.js"),
-    "utf8"
-  );
+function loadResumeStorage({ withSchema = false } = {}) {
   const context = { window: {}, console };
   vm.createContext(context);
+  if (withSchema) {
+    vm.runInContext(
+      fs.readFileSync(path.join(__dirname, "../shared/resume-schema.js"), "utf8"),
+      context
+    );
+  }
+  const source = fs.readFileSync(path.join(__dirname, "../shared/resume-storage.js"), "utf8");
   vm.runInContext(source, context);
   return context.window.ResumeStorage;
 }
@@ -298,4 +301,50 @@ test("both resume entry points use the shared local storage helper", () => {
       /chrome\.storage\.sync\.set\(\s*\{\s*\[RESUME_(?:PROFILE|IMPORT_RAW_TEXT)_KEY\]/
     );
   }
+});
+
+test("schema v7 migration permanently removes deprecated fields from every template", async () => {
+  const resumeStorage = loadResumeStorage({ withSchema: true });
+  const fake = createStorage({
+    local: {
+      resumeTemplates: {
+        "tpl-a": {
+          id: "tpl-a",
+          name: "开发简历",
+          schemaVersion: 6,
+          profile: {
+            personal: { fullName: "张三", englishName: "Sam Zhang" },
+            projects: [{ name: "项目 A", demoUrl: "https://demo.example.com" }],
+          },
+        },
+        "tpl-b": {
+          id: "tpl-b",
+          name: "测试简历",
+          schemaVersion: 6,
+          profile: {
+            personal: { fullName: "李四", alternateEmail: "alt@example.com" },
+            additional: { awards: "一等奖", references: "王老师" },
+          },
+        },
+      },
+      activeResumeTemplateId: "tpl-a",
+    },
+  });
+
+  const state = await resumeStorage.loadTemplateState(fake.storage);
+  assert.equal(state.templates.length, 2);
+  for (const template of state.templates) {
+    assert.equal(template.schemaVersion, 7);
+    assert.equal(template.profile.personal.englishName, undefined);
+    assert.equal(template.profile.personal.alternateEmail, undefined);
+  }
+  assert.equal(state.templates[0].profile.personal.fullName, "张三");
+  assert.equal(state.templates[0].profile.projects[0].name, "项目 A");
+  assert.equal(state.templates[0].profile.projects[0].demoUrl, undefined);
+  assert.equal(state.templates[1].profile.additional.awards, "一等奖");
+  assert.equal(state.templates[1].profile.additional.references, undefined);
+
+  const writesAfterMigration = fake.calls.localSet.length;
+  await resumeStorage.loadTemplateState(fake.storage);
+  assert.equal(fake.calls.localSet.length, writesAfterMigration);
 });

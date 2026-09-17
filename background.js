@@ -2,7 +2,7 @@
 // 统一代理调用 OpenAI 兼容接口（如 DeepSeek），避免侧边栏/内容脚本的 CORS 问题。
 
 importScripts("shared/model-storage.js");
-importScripts("shared/resume-storage.js", "shared/resume-sync.js", "shared/resume-sync-worker.js");
+importScripts("shared/resume-schema.js", "shared/resume-storage.js", "shared/resume-sync.js", "shared/resume-sync-worker.js");
 
 // 初始化：点击扩展图标时打开侧边栏
 chrome.runtime.onInstalled.addListener(() => {

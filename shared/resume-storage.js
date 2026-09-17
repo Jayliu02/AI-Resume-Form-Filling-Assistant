@@ -127,6 +127,29 @@
     return map;
   }
 
+  function normalizeTemplatesForCurrentSchema(templates) {
+    const schema = root.ResumeSchema;
+    if (!schema?.normalizeResumeProfile || !Number.isFinite(Number(schema.version))) {
+      return { templates, changed: false };
+    }
+
+    let changed = false;
+    const normalizedTemplates = (templates || []).map((template) => {
+      const profile = schema.normalizeResumeProfile(template.profile || {});
+      const schemaVersion = Number(schema.version);
+      if (
+        Number(template.schemaVersion) === schemaVersion &&
+        JSON.stringify(template.profile || {}) === JSON.stringify(profile)
+      ) {
+        return template;
+      }
+      changed = true;
+      return { ...template, profile, schemaVersion };
+    });
+
+    return { templates: normalizedTemplates, changed };
+  }
+
   function buildEmptyTemplate(id, name) {
     return {
       id: id || makeId(),
@@ -194,8 +217,9 @@
   }
 
   function persistTemplates(storage, templates, activeTemplateId) {
+    const normalized = normalizeTemplatesForCurrentSchema(templates);
     return storage.local.set({
-      [keys.templates]: toTemplateMap(templates),
+      [keys.templates]: toTemplateMap(normalized.templates),
       [keys.activeTemplateId]: activeTemplateId,
     });
   }
@@ -227,6 +251,12 @@
     if (templates.length === 0) {
       templates = [buildEmptyTemplate(DEFAULT_TEMPLATE_ID, DEFAULT_TEMPLATE_NAME)];
       activeTemplateId = DEFAULT_TEMPLATE_ID;
+      await persistTemplates(storage, templates, activeTemplateId);
+    }
+
+    const schemaMigration = normalizeTemplatesForCurrentSchema(templates);
+    if (schemaMigration.changed) {
+      templates = schemaMigration.templates;
       await persistTemplates(storage, templates, activeTemplateId);
     }
 

@@ -411,7 +411,7 @@ async function loadResumeProfile() {
 function buildEditorSections() {
   return schema.sections.filter((section) => !["certificates", "languages"].includes(section.key)).map((section) =>
     section.key === "skills"
-      ? { ...section, label: "技能证书", children: [section, schema.getSectionDefinition("certificates"), schema.getSectionDefinition("languages")] }
+      ? { ...section, label: "技能与证书", children: [section, schema.getSectionDefinition("certificates"), schema.getSectionDefinition("languages")] }
       : { ...section, children: [section] }
   );
 }
@@ -565,7 +565,7 @@ function renderFieldGrid(fields, profile, prefix) {
   for (const field of fields) {
     const path = `${prefix}.${field.key}`;
     const wrapper = document.createElement("div");
-    wrapper.className = `resume-field${prefix === "skills" && field.key !== "notableAchievements" ? " resume-field-compact" : ""}`;
+    wrapper.className = `resume-field${prefix === "skills" ? " resume-field-compact" : ""}${field.rowStart ? " resume-field-row-start" : ""}`;
     const label = document.createElement("label");
     label.className = "resume-field-label";
     label.textContent = field.label;

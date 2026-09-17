@@ -75,7 +75,7 @@ test("resume schema normalizes campus recruiting resume data", () => {
     ],
   });
 
-  assert.equal(normalized.educations[0].educationType, "统招全日制");
+  assert.equal(normalized.educations[0].educationType, "全日制");
   assert.equal(normalized.educations[0].studyMode, "联合培养");
   assert.equal(normalized.educations[0].laboratory, "CAD&CG 国家重点实验室");
   assert.equal(normalized.educations[0].researchDirection, "AIGC, 多模态生成");
@@ -185,7 +185,7 @@ test("achievements expose only name, description and date while preserving date 
   assert.equal(JSON.parse(schema.createImportTemplateString()).personalAchievements.length, 10);
 });
 
-test("online profiles migrate into contact details and removed sections stay excluded", () => {
+test("online profiles migrate supported links and removed fields stay excluded", () => {
   const schema = loadResumeSchema();
   const profile = schema.normalizeResumeProfile({
     contactAndLocation: { githubUrl: "https://github.com/new", websiteUrl: "" },
@@ -199,7 +199,7 @@ test("online profiles migrate into contact details and removed sections stay exc
 
   assert.equal(profile.contactAndLocation.githubUrl, "https://github.com/new");
   assert.equal(profile.contactAndLocation.websiteUrl, "https://legacy.example.com");
-  assert.equal(profile.contactAndLocation.linkedinUrl, "https://linkedin.com/in/legacy");
+  assert.equal(profile.contactAndLocation.linkedinUrl, undefined);
   assert.equal(profile.onlinePresence, undefined);
   assert.equal(profile.jobPreferences, undefined);
   assert.equal(schema.sections.some((section) => section.key === "onlinePresence" || section.key === "jobPreferences"), false);
@@ -208,4 +208,46 @@ test("online profiles migrate into contact details and removed sections stay exc
   assert.equal(template.onlinePresence, undefined);
   assert.equal(template.jobPreferences, undefined);
   assert.equal(template.contactAndLocation.githubUrl, "");
+});
+
+test("zh-CN schema removes redundant fields and keeps contextual date labels", () => {
+  const schema = loadResumeSchema();
+  const removedPaths = [
+    "personal.firstName",
+    "personal.middleName",
+    "personal.lastName",
+    "personal.preferredName",
+    "personal.englishName",
+    "personal.alternateEmail",
+    "personal.alternatePhone",
+    "personal.phoneCountryCode",
+    "contactAndLocation.currentAddressLine2",
+    "contactAndLocation.timezone",
+    "contactAndLocation.linkedinUrl",
+    "skills.managementExperience",
+    "skills.softSkills",
+    "skills.notableAchievements",
+    "projects.0.demoUrl",
+    "additional.volunteerExperience",
+    "additional.competitions",
+    "additional.openSourceContributions",
+    "additional.references",
+  ];
+  const catalog = schema.getFieldCatalog({ mode: "initial" });
+  const paths = new Set(catalog.map((field) => field.path));
+  removedPaths.forEach((fieldPath) => assert.equal(paths.has(fieldPath), false, fieldPath));
+
+  assert.equal(schema.version, 7);
+  assert.equal(catalog.find((field) => field.path === "educations.0.startDate").label, "教育经历 1 / 入学时间");
+  assert.equal(catalog.find((field) => field.path === "educations.0.endDate").label, "教育经历 1 / 毕业时间");
+  assert.equal(catalog.find((field) => field.path === "workExperiences.0.startDate").label, "工作经历 1 / 入职时间");
+  assert.equal(catalog.find((field) => field.path === "workExperiences.0.endDate").label, "工作经历 1 / 离职时间");
+
+  const normalized = schema.normalizeResumeProfile({
+    personal: { fullName: "张三", englishName: "Sam Zhang" },
+    projects: [{ name: "项目", demoUrl: "https://demo.example.com" }],
+  });
+  assert.equal(normalized.personal.fullName, "张三");
+  assert.equal(normalized.personal.englishName, undefined);
+  assert.equal(normalized.projects[0].demoUrl, undefined);
 });

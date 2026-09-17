@@ -372,6 +372,10 @@ body.resume-editor-page {
   gap: 6px;
 }
 
+.resume-field-row-start {
+  grid-column-start: 1;
+}
+
 /* Full-width for textarea fields */
 .resume-field:has(.resume-textarea) {
   grid-column: 1 / -1;
@@ -572,6 +576,10 @@ body.resume-editor-page {
   .resume-field:has(.resume-textarea) {
     grid-column: auto;
   }
+
+  .resume-field-row-start {
+    grid-column-start: auto;
+  }
 }
 
 .editor-menu { position: relative; }
@@ -609,6 +617,7 @@ body.resume-editor-page {
 
 .resume-editor-page .btn { min-height: 36px; padding: 8px 12px; }
 .resume-field.resume-field-compact { grid-column: auto; }
+.resume-field.resume-field-compact.resume-field-row-start { grid-column-start: 1; }
 .resume-field-compact .resume-textarea { min-height: 64px; }
 
 /* Keep the editor calm and immediate; the side panel retains its own feedback motion. */
