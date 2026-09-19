@@ -141,11 +141,22 @@
     }
     return validate(JSON.parse(await new Blob(chunks).text()));
   }
-  function quota(data) {
+  function storageUsage(data) {
     const sizes = Object.entries(data).map(([key, value]) => encoder.encode(key).length + encoder.encode(JSON.stringify(value)).length);
-    const bytes = sizes.reduce((a, b) => a + b, 0);
-    if (sizes.some(n => n > 8192) || bytes > 102400 || sizes.length > 512) throw new Error("浏览器同步容量不足（含更新临时空间）；完整简历已保留本机，请导出备份或减少内容后重试");
-    return bytes;
+    return { bytes: sizes.reduce((a, b) => a + b, 0), items: sizes.length,
+      largestItemBytes: sizes.reduce((a, b) => Math.max(a, b), 0) };
   }
-  root.ResumeSync = { PREFIX, STATE, STATUS, stable, hash, merge, materialize, seed, capture, pack, unpack, quota };
+  function quota(data) {
+    const usage = storageUsage(data), reasons = [];
+    if (usage.bytes > 102400) reasons.push(`预计占用 ${(usage.bytes / 1024).toFixed(1)} KB，超过总容量 100 KB`);
+    if (usage.largestItemBytes > 8192) reasons.push(`最大单项 ${usage.largestItemBytes} 字节，超过单项上限 8192 字节`);
+    if (usage.items > 512) reasons.push(`存储项 ${usage.items} 个，超过数量上限 512 个`);
+    if (reasons.length) {
+      const error = new Error(`浏览器同步容量不足（含更新临时空间）：${reasons.join("；")}；完整简历已保留本机，请导出备份或减少内容后重试`);
+      error.code = "SYNC_QUOTA_EXCEEDED";
+      throw error;
+    }
+    return usage.bytes;
+  }
+  root.ResumeSync = { PREFIX, STATE, STATUS, stable, hash, merge, materialize, seed, capture, pack, unpack, storageUsage, quota };
 })(globalThis);

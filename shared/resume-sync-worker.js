@@ -99,14 +99,16 @@
   async function sync() {
     const local = await initialize(), state = local[S.STATE];
     if (!state.enabled) return;
+    let capacity = null;
     try {
       let remote = await chrome.storage.sync.get(null);
-      let records = state.records;
+      let remoteRecords = {};
       for (const [key, head] of Object.entries(remote)) {
         if (!key.startsWith(S.PREFIX + "head:")) continue;
         if (typeof head?.prefix !== "string" || !head.prefix.startsWith(S.PREFIX + "part:")) throw new Error("同步清单格式错误");
-        records = S.merge(records, await S.unpack(head, remote));
+        remoteRecords = S.merge(remoteRecords, await S.unpack(head, remote));
       }
+      const records = S.merge(state.records, remoteRecords);
       const received = S.stable(records) !== S.stable(state.records);
       state.records = records;
       if (received) {
@@ -115,7 +117,6 @@
         await chrome.storage.local.set({ [S.STATE]: state, [R.keys.templates]: local[R.keys.templates], [R.keys.activeTemplateId]: local[R.keys.activeTemplateId] });
         await status({ lastReceivedAt: new Date().toISOString() });
       }
-      const packed = await S.pack(records);
       const headKey = S.PREFIX + "head:" + state.device;
       const oldHead = remote[headKey];
       const ownerPrefix = S.PREFIX + "part:" + state.device + ":";
@@ -126,30 +127,51 @@
         remote = await chrome.storage.sync.get(null);
       }
       let wrote = false;
-      if (oldHead?.digest !== packed.digest) {
+      // The union of validated remote heads already represents these records.
+      // Receiving a version must not create another full device snapshot.
+      // Keep existing published heads: deleting a peer's data or dropping
+      // tombstones here could lose concurrent edits or revive deleted resumes.
+      if (S.stable(records) !== S.stable(remoteRecords)) {
+        const packed = await S.pack(records);
         const prefix = ownerPrefix + packed.digest + ":";
         const head = { version: 1, digest: packed.digest, count: packed.parts.length, prefix };
         const chunks = Object.fromEntries(packed.parts.map((part, i) => [prefix + i, part]));
-        S.quota({ ...remote, ...chunks, [headKey]: head });
+        const staged = { ...remote, ...chunks };
+        const committed = { ...staged, [headKey]: head };
+        const oldKeys = oldHead ? Object.keys(remote).filter(k => k.startsWith(ownerPrefix) && k.startsWith(oldHead.prefix) && !k.startsWith(prefix)) : [];
+        const final = { ...committed };
+        for (const key of oldKeys) delete final[key];
+        const stagedUsage = S.storageUsage(staged), committedUsage = S.storageUsage(committed);
+        capacity = { currentBytes: S.storageUsage(remote).bytes,
+          versionBytes: S.storageUsage({ ...chunks, [headKey]: head }).bytes,
+          peakBytes: Math.max(stagedUsage.bytes, committedUsage.bytes),
+          finalBytes: S.storageUsage(final).bytes,
+          peakItems: Math.max(stagedUsage.items, committedUsage.items),
+          largestItemBytes: Math.max(stagedUsage.largestItemBytes, committedUsage.largestItemBytes) };
+        // Both writes must fit, including the old head while staging chunks.
+        S.quota(staged);
+        S.quota(committed);
         await chrome.storage.sync.set(chunks);
         await chrome.storage.sync.set({ [headKey]: head });
         wrote = true;
-        if (oldHead) {
-          const oldKeys = Object.keys(remote).filter(k => k.startsWith(ownerPrefix) && k.startsWith(oldHead.prefix) && !k.startsWith(prefix));
-          if (oldKeys.length) await chrome.storage.sync.remove(oldKeys);
-        }
+        if (oldKeys.length) await chrome.storage.sync.remove(oldKeys);
       }
       state.pending = false; state.failures = 0;
       await chrome.storage.local.set({ [S.STATE]: state });
       await chrome.alarms.clear(ALARM);
       const bytes = await chrome.storage.sync.getBytesInUse(null);
-      await status({ enabled: true, pending: false, bytes, error: null,
+      await status({ enabled: true, pending: false, bytes, capacity: null, error: null, errorCode: null,
         ...(wrote ? { lastPublishedAt: new Date().toISOString() } : {}),
-        message: "已写入浏览器同步存储；其他设备的到达时间由浏览器决定" });
+        message: wrote ? "已写入浏览器同步存储；其他设备的到达时间由浏览器决定" : "本机简历已与浏览器同步存储一致；其他设备的到达时间由浏览器决定" });
     } catch (error) {
       state.pending = true; state.failures = Math.min((state.failures || 0) + 1, 6);
       await chrome.storage.local.set({ [S.STATE]: state });
-      await status({ enabled: true, pending: true, error: error.message, message: error.message });
+      // Refresh on failure too. Never present the last successful reading as
+      // current usage; if the browser cannot measure it, explicitly hide it.
+      let bytes = null;
+      try { bytes = await chrome.storage.sync.getBytesInUse(null); } catch (_) {}
+      await status({ enabled: true, pending: true, bytes, capacity,
+        errorCode: error.code || null, error: error.message, message: error.message });
       await chrome.alarms.create(ALARM, { delayInMinutes: Math.min(2 ** state.failures, 60) });
     }
   }

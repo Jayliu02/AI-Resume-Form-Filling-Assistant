@@ -71,9 +71,9 @@ test("identical initial templates deduplicate and empty placeholder is skipped",
 });
 test("quota counts UTF-8, temporary generations, individual items and key count", () => {
   assert.equal(S.quota({ a: "中" }), 6);
-  assert.throws(() => S.quota({ a: "中".repeat(3000) }), /容量不足/);
-  assert.throws(() => S.quota(Object.fromEntries(Array.from({length: 16}, (_, i) => ["k" + i, "x".repeat(7000)]))), /容量不足/);
-  assert.throws(() => S.quota(Object.fromEntries(Array.from({length: 513}, (_, i) => ["k" + i, ""]))), /容量不足/);
+  assert.throws(() => S.quota({ a: "中".repeat(3000) }), { code: "SYNC_QUOTA_EXCEEDED", message: /单项上限 8192/ });
+  assert.throws(() => S.quota(Object.fromEntries(Array.from({length: 16}, (_, i) => ["k" + i, "x".repeat(7000)]))), /总容量 100 KB/);
+  assert.throws(() => S.quota(Object.fromEntries(Array.from({length: 513}, (_, i) => ["k" + i, ""]))), /数量上限 512/);
 });
 
 function event() {
@@ -252,4 +252,106 @@ test("quota failure keeps complete local resume and previous published generatio
   assert.match(failed.error, /容量不足/);
   assert.equal((await a.call("loadTemplateState")).templates[0].rawText, long);
   assert.equal(S.stable(Object.fromEntries(Object.entries(remote.state).filter(([k]) => k.includes("head:")))), previousHeads);
+});
+
+test("receiving a large published resume does not upload a duplicate snapshot", async () => {
+  const remote = area({}), a = device(remote);
+  const long = Array.from({length: 2500}, () => webcrypto.randomUUID()).join("");
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: long }]);
+  assert.equal((await a.control("enable")).pending, false);
+  assert.ok(S.quota(remote.state) > 51200);
+  const published = S.stable(remote.state);
+  const b = device(remote, { resumeTemplates: {}, activeResumeTemplateId: "" });
+  const received = await b.control("enable");
+  assert.equal(received.pending, false);
+  assert.ok(received.lastReceivedAt);
+  assert.equal(received.lastPublishedAt, undefined);
+  assert.equal((await b.call("loadTemplateState")).templates[0].rawText, long);
+  assert.equal(S.stable(remote.state), published);
+  await b.control();
+  assert.equal(S.stable(remote.state), published);
+});
+
+test("a receiving device can later publish edits and deletion without reviving old content", async () => {
+  const remote = area({}), a = device(remote);
+  await a.control("enable");
+  const b = device(remote, { resumeTemplates: {}, activeResumeTemplateId: "" });
+  await b.control("enable");
+  await b.call("saveTemplateContent", ["tpl-default", { rawText: "接收设备的新修改" }]);
+  assert.equal((await b.control()).pending, false);
+  await a.control();
+  assert.equal((await a.call("loadTemplateState")).templates[0].rawText, "接收设备的新修改");
+  await b.call("deleteTemplate", ["tpl-default"]);
+  await b.control(); await a.control();
+  const c = device(remote, { resumeTemplates: {}, activeResumeTemplateId: "" });
+  await c.control("enable");
+  assert.equal(Object.keys(S.materialize(c.storage.local.state[S.STATE].records).templates).length, 0);
+});
+
+test("remote union retains concurrent branches without another full snapshot", async () => {
+  const left = area({}), a = device(left);
+  await a.control("enable");
+  const right = area(structuredClone(left.state));
+  const b = device(right, { resumeTemplates: {}, activeResumeTemplateId: "" });
+  await b.control("enable");
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: "并发甲" }]);
+  await b.call("saveTemplateContent", ["tpl-default", { rawText: "并发乙" }]);
+  await a.control(); await b.control();
+  const bOwner = S.PREFIX + "head:" + b.storage.local.state[S.STATE].device;
+  const bHead = right.state[bOwner];
+  await left.set(Object.fromEntries(Object.entries(right.state).filter(([k]) => k === bOwner || k.startsWith(bHead.prefix))));
+  const published = S.stable(left.state);
+  await a.control();
+  assert.deepEqual(Array.from((await a.call("loadTemplateState")).templates, t => t.rawText).sort(), ["并发乙", "并发甲"].sort());
+  assert.equal(S.stable(left.state), published);
+});
+
+test("quota failure refreshes usage and reports temporary peak even when final data fits", async () => {
+  const remote = area({}), a = device(remote);
+  const randomText = () => Array.from({length: 1400}, () => webcrypto.randomUUID()).join("");
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: randomText() }]);
+  const first = await a.control("enable");
+  assert.equal(first.pending, false);
+  const fillerKeys = [];
+  while (S.quota(remote.state) < 75 * 1024) {
+    const key = "unrelated-" + fillerKeys.length;
+    fillerKeys.push(key);
+    await remote.set({ [key]: "x".repeat(6000) });
+  }
+  const previous = S.stable(remote.state);
+  const long = randomText();
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: long }]);
+  const failed = await a.control();
+  assert.equal(failed.errorCode, "SYNC_QUOTA_EXCEEDED");
+  assert.equal(failed.bytes, await remote.getBytesInUse());
+  assert.ok(failed.bytes > first.bytes);
+  assert.ok(failed.capacity.peakBytes > 102400);
+  assert.ok(failed.capacity.finalBytes < 102400);
+  assert.equal(failed.capacity.currentBytes, failed.bytes);
+  assert.equal(failed.lastPublishedAt, first.lastPublishedAt);
+  assert.equal(S.stable(remote.state), previous);
+  assert.equal((await a.call("loadTemplateState")).templates[0].rawText, long);
+  await remote.remove(fillerKeys);
+  const recovered = await a.control();
+  assert.equal(recovered.pending, false);
+  assert.equal(recovered.capacity, null);
+  assert.equal(recovered.errorCode, null);
+  assert.equal(recovered.bytes, await remote.getBytesInUse());
+});
+
+test("failed usage measurement hides stale successful reading and preserves sync error", async () => {
+  const remote = area({}), a = device(remote);
+  await a.control("enable");
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: "待上传" }]);
+  remote.fail = true;
+  remote.getBytesInUse = async () => { throw new Error("读取占用失败"); };
+  const failed = await a.control();
+  assert.equal(failed.bytes, null);
+  assert.match(failed.message, /模拟断网写入失败/);
+  assert.equal(failed.pending, true);
+  remote.get = async () => { throw new Error("读取同步数据失败"); };
+  const next = await a.control();
+  assert.equal(next.capacity, null);
+  assert.equal(next.bytes, null);
+  assert.match(next.message, /读取同步数据失败/);
 });

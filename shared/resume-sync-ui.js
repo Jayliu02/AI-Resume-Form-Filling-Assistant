@@ -19,6 +19,14 @@
       message.textContent = state.message || "同步未开启";
       const parts = [];
       if (Number.isFinite(state.bytes)) parts.push(`同步存储占用 ${(state.bytes / 1024).toFixed(1)} / 100 KB（包含其他设备副本与版本记录）`);
+      else if (state.bytes === null) parts.push("同步存储占用暂时无法读取");
+      if (state.capacity) {
+        const c = state.capacity;
+        parts.push(`本次待写入版本 ${(c.versionBytes / 1024).toFixed(1)} KB`);
+        parts.push(`更新峰值预计 ${(c.peakBytes / 1024).toFixed(1)} / 100 KB（新旧版本暂时共存）`);
+        parts.push(`更新完成后预计 ${(c.finalBytes / 1024).toFixed(1)} / 100 KB`);
+        parts.push(`峰值存储项 ${c.peakItems} / 512；最大单项 ${c.largestItemBytes} / 8192 字节`);
+      }
       if (state.lastPublishedAt) parts.push(`最近写入：${new Date(state.lastPublishedAt).toLocaleString()}`);
       if (state.lastReceivedAt) parts.push(`最近接收：${new Date(state.lastReceivedAt).toLocaleString()}`);
       details.textContent = parts.join("；");
