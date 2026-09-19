@@ -3,6 +3,9 @@
   const PREFIX = "resumeSyncV1:";
   const STATE = "resumeSyncState";
   const STATUS = "resumeSyncStatus";
+  const GENERATION = PREFIX + "generation";
+  const RECOVERY_BACKUP = "resumeSyncRecoveryBackup";
+  const ADOPTION_BACKUP = "resumeSyncAdoptionBackup";
   const encoder = new TextEncoder();
   const copy = (v) => JSON.parse(JSON.stringify(v));
   const stable = (v) => JSON.stringify(v, function (_, value) {
@@ -146,6 +149,23 @@
     return { bytes: sizes.reduce((a, b) => a + b, 0), items: sizes.length,
       largestItemBytes: sizes.reduce((a, b) => Math.max(a, b), 0) };
   }
+  function generation(data) {
+    const value = data[GENERATION];
+    if (value === undefined) return { id: "", phase: "ready" };
+    if (value?.version !== 1 || typeof value.id !== "string" || !/^[a-zA-Z0-9-]+$/.test(value.id) ||
+        !["rebuilding", "ready"].includes(value.phase)) throw new Error("同步重建标记无效，请先备份后重建同步");
+    return value;
+  }
+  async function readRecords(data) {
+    const current = generation(data);
+    let records = {};
+    for (const [key, head] of Object.entries(data)) {
+      if (!key.startsWith(PREFIX + "head:") || (head?.generation || "") !== current.id) continue;
+      if (typeof head?.prefix !== "string" || !head.prefix.startsWith(PREFIX + "part:")) throw new Error("同步清单格式错误");
+      records = merge(records, await unpack(head, data));
+    }
+    return records;
+  }
   function quota(data) {
     const usage = storageUsage(data), reasons = [];
     if (usage.bytes > 102400) reasons.push(`预计占用 ${(usage.bytes / 1024).toFixed(1)} KB，超过总容量 100 KB`);
@@ -158,5 +178,6 @@
     }
     return usage.bytes;
   }
-  root.ResumeSync = { PREFIX, STATE, STATUS, stable, hash, merge, materialize, seed, capture, pack, unpack, storageUsage, quota };
+  root.ResumeSync = { PREFIX, STATE, STATUS, GENERATION, RECOVERY_BACKUP, ADOPTION_BACKUP,
+    stable, hash, merge, materialize, seed, capture, pack, unpack, storageUsage, quota, generation, readRecords };
 })(globalThis);

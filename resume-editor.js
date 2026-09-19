@@ -309,6 +309,23 @@ async function handleExportTemplates() {
   }
 }
 
+// Recovery saves the current form and prevents edits while its backup and
+// replacement are in flight. A save failure aborts before any sync deletion.
+window.ResumeEditorSyncRecovery = {
+  async begin() {
+    if (isLoadingResume || isImporting) throw new Error("请等待简历加载或导入完成后再修复同步");
+    const targets = [document.querySelector("main"), ...document.querySelectorAll(".editor-toolbar > :not(.editor-management), .editor-management .action-row")].filter(Boolean);
+    const previous = targets.map(el => [el, el.inert]);
+    const unlock = () => previous.forEach(([el, inert]) => { el.inert = inert; });
+    targets.forEach(el => { el.inert = true; });
+    try {
+      if (isResumeDirty) await persistResumeProfile({ silent: true });
+      return unlock;
+    } catch (error) { unlock(); throw error; }
+  },
+  reload: () => loadResumeProfile(),
+};
+
 async function handleImportTemplates() {
   const file = importTemplatesFileEl.files?.[0];
   if (!file) return;

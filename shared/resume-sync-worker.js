@@ -8,6 +8,11 @@
   const ALARM = "resume-sync-retry";
   const methods = new Set(["loadTemplateState", "saveTemplateContent", "createTemplate", "duplicateTemplate", "renameTemplate", "deleteTemplate", "setActiveTemplateId", "exportTemplateData", "importTemplateData", "exportActiveTemplateData", "importActiveTemplateData"]);
   let tail = Promise.resolve(), timer;
+  async function stopTimers() {
+    clearTimeout(timer);
+    await chrome.alarms.clear(ALARM);
+  }
+  const recovery = root.ResumeSyncRecovery.create({ initialize, project, status, stopTimers });
   function enqueue(fn) {
     const next = tail.then(fn); tail = next.catch(() => {}); return next;
   }
@@ -75,6 +80,7 @@
     if (changed) {
       await S.capture(state, before, draft[R.keys.templates], bases);
       state.pending = true;
+      state.quotaBlocked = false;
       project(state, draft);
       if (result?.id) {
         const origin = bases[result.id]?.origin || before[result.id]?._syncBase?.origin || result.id;
@@ -98,16 +104,23 @@
   }
   async function sync() {
     const local = await initialize(), state = local[S.STATE];
-    if (!state.enabled) return;
+    if (!state.enabled || state.recovery) return;
     let capacity = null;
     try {
       let remote = await chrome.storage.sync.get(null);
-      let remoteRecords = {};
-      for (const [key, head] of Object.entries(remote)) {
-        if (!key.startsWith(S.PREFIX + "head:")) continue;
-        if (typeof head?.prefix !== "string" || !head.prefix.startsWith(S.PREFIX + "part:")) throw new Error("同步清单格式错误");
-        remoteRecords = S.merge(remoteRecords, await S.unpack(head, remote));
+      const current = S.generation(remote);
+      if (current.id !== (state.generation || "") || current.phase !== "ready") {
+        state.enabled = false;
+        await chrome.storage.local.set({ [S.STATE]: state });
+        await stopTimers();
+        await status({ enabled: false, pending: true, generationChanged: true,
+          canAdopt: Boolean(current.id) && current.phase === "ready", capacity: null,
+          bytes: await chrome.storage.sync.getBytesInUse(null),
+          message: current.phase === "ready" ? "同步已在其他设备重建，本机已暂停上传；请备份后接收重建版本" : "其他设备正在重建同步，本机已暂停上传；完成后请备份并接收重建版本" });
+        return;
       }
+      if (state.quotaBlocked) return;
+      const remoteRecords = await S.readRecords(remote);
       const records = S.merge(state.records, remoteRecords);
       const received = S.stable(records) !== S.stable(state.records);
       state.records = records;
@@ -133,8 +146,9 @@
       // tombstones here could lose concurrent edits or revive deleted resumes.
       if (S.stable(records) !== S.stable(remoteRecords)) {
         const packed = await S.pack(records);
-        const prefix = ownerPrefix + packed.digest + ":";
-        const head = { version: 1, digest: packed.digest, count: packed.parts.length, prefix };
+        const prefix = ownerPrefix + (current.id ? current.id + ":" : "") + packed.digest + ":";
+        const head = { version: 1, digest: packed.digest, count: packed.parts.length, prefix,
+          ...(current.id ? { generation: current.id } : {}) };
         const chunks = Object.fromEntries(packed.parts.map((part, i) => [prefix + i, part]));
         const staged = { ...remote, ...chunks };
         const committed = { ...staged, [headKey]: head };
@@ -151,37 +165,69 @@
         // Both writes must fit, including the old head while staging chunks.
         S.quota(staged);
         S.quota(committed);
+        const latestGeneration = S.generation(await chrome.storage.sync.get(S.GENERATION));
+        if (latestGeneration.id !== current.id || latestGeneration.phase !== "ready") throw new Error("其他设备开始重建同步，请稍后接收重建版本");
         await chrome.storage.sync.set(chunks);
         await chrome.storage.sync.set({ [headKey]: head });
         wrote = true;
         if (oldKeys.length) await chrome.storage.sync.remove(oldKeys);
       }
-      state.pending = false; state.failures = 0;
+      state.pending = false; state.failures = 0; state.quotaBlocked = false;
       await chrome.storage.local.set({ [S.STATE]: state });
       await chrome.alarms.clear(ALARM);
       const bytes = await chrome.storage.sync.getBytesInUse(null);
       await status({ enabled: true, pending: false, bytes, capacity: null, error: null, errorCode: null,
+        generationChanged: false, canAdopt: false, rebuildPending: false,
         ...(wrote ? { lastPublishedAt: new Date().toISOString() } : {}),
         message: wrote ? "已写入浏览器同步存储；其他设备的到达时间由浏览器决定" : "本机简历已与浏览器同步存储一致；其他设备的到达时间由浏览器决定" });
     } catch (error) {
       state.pending = true; state.failures = Math.min((state.failures || 0) + 1, 6);
+      state.quotaBlocked = error.code === "SYNC_QUOTA_EXCEEDED" || /QUOTA_BYTES|MAX_ITEMS/.test(error.message);
       await chrome.storage.local.set({ [S.STATE]: state });
       // Refresh on failure too. Never present the last successful reading as
       // current usage; if the browser cannot measure it, explicitly hide it.
       let bytes = null;
       try { bytes = await chrome.storage.sync.getBytesInUse(null); } catch (_) {}
-      await status({ enabled: true, pending: true, bytes, capacity,
-        errorCode: error.code || null, error: error.message, message: error.message });
-      await chrome.alarms.create(ALARM, { delayInMinutes: Math.min(2 ** state.failures, 60) });
+      await status({ enabled: state.enabled, pending: true, bytes, capacity,
+        errorCode: error.code || null, error: error.message,
+        message: error.message + (state.quotaBlocked ? "；已暂停自动重试，可减少内容或备份并重建同步" : "") });
+      if (state.quotaBlocked || !state.enabled) await stopTimers();
+      else await chrome.alarms.create(ALARM, { delayInMinutes: Math.min(2 ** state.failures, 60) });
     }
   }
   async function control(request) {
+    if (["prepareRebuild", "rebuild", "prepareAdopt", "adopt"].includes(request.command)) {
+      try {
+        if (request.command === "prepareRebuild") return await recovery.prepare();
+        if (request.command === "prepareAdopt") return await recovery.prepareAdopt();
+        if (request.command === "rebuild") { await recovery.rebuild(request.token); await sync(); }
+        if (request.command === "adopt") await recovery.adopt(request.token);
+        return (await chrome.storage.local.get(S.STATUS))[S.STATUS];
+      } catch (error) {
+        const state = (await initialize())[S.STATE];
+        await status({ enabled: state.enabled, rebuildPending: Boolean(state.recovery), error: error.message, message: error.message });
+        throw error;
+      }
+    }
     const data = await initialize(), state = data[S.STATE];
+    if (state.recovery && request.command === "enable" && request.enabled) throw new Error("同步重建尚未完成，请先点击“继续重建同步”");
+    if (["enable", "retry"].includes(request.command)) {
+      state.quotaBlocked = false;
+      await chrome.storage.local.set({ [S.STATE]: state });
+    }
     if (request.command === "enable") {
       state.enabled = Boolean(request.enabled);
       await chrome.storage.local.set({ [S.STATE]: state });
       await status({ enabled: state.enabled, message: state.enabled ? "正在同步" : "同步已关闭，数据保留本机" });
       if (!state.enabled) { clearTimeout(timer); await chrome.alarms.clear(ALARM); }
+    }
+    // A paused peer still needs to notice when the publishing device finishes.
+    if (!state.enabled && ["open", "retry"].includes(request.command)) {
+      const current = S.generation(await chrome.storage.sync.get(S.GENERATION));
+      if (current.id !== state.recovery?.id && (current.id !== (state.generation || "") || current.phase !== "ready")) {
+        await status({ enabled: false, generationChanged: true, canAdopt: Boolean(current.id) && current.phase === "ready",
+          message: current.phase === "ready" ? "同步已在其他设备重建，请备份后接收重建版本" : "其他设备正在重建同步，请等待完成后重新打开本页" });
+      }
     }
     if (state.enabled && ["enable", "retry", "open"].includes(request.command)) await sync();
     return (await chrome.storage.local.get(S.STATUS))[S.STATUS] || { enabled: false, message: "同步未开启" };
@@ -199,7 +245,10 @@
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && Object.keys(changes).some(k => k.startsWith(S.PREFIX))) {
-      enqueue(async () => { if ((await initialize())[S.STATE].enabled) await schedule(); }).catch(console.error);
+      enqueue(async () => {
+        const state = (await initialize())[S.STATE];
+        if (state.enabled && !state.quotaBlocked && !state.recovery) await schedule();
+      }).catch(console.error);
     }
   });
   chrome.alarms.onAlarm.addListener(alarm => {
@@ -208,6 +257,6 @@
   chrome.runtime.onStartup.addListener(() => enqueue(sync).catch(console.error));
   enqueue(async () => {
     const state = (await initialize())[S.STATE];
-    if (state.enabled) await schedule();
+    if (state.enabled && !state.quotaBlocked && !state.recovery) await schedule();
   }).catch(console.error);
 })(globalThis);

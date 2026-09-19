@@ -101,7 +101,7 @@ function device(remote, saved) {
     alarms: { async create(k, v) { alarms.set(k, v); }, async clear(k) { alarms.delete(k); }, onAlarm: event() },
   };
   c.setTimeout = () => 1; c.clearTimeout = () => {};
-  for (const file of ["resume-storage.js", "resume-sync-worker.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, "../shared/" + file), "utf8"), c);
+  for (const file of ["resume-storage.js", "resume-sync-recovery.js", "resume-sync-worker.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, "../shared/" + file), "utf8"), c);
   async function request(message, sender = { id: "test", url: "chrome-extension://test/popup.html" }) {
     const response = await new Promise(resolve => c.chrome.runtime.onMessage.handlers[0](message, sender, resolve));
     if (!response.ok) throw new Error(response.error);
@@ -354,4 +354,225 @@ test("failed usage measurement hides stale successful reading and preserves sync
   assert.equal(next.capacity, null);
   assert.equal(next.bytes, null);
   assert.match(next.message, /读取同步数据失败/);
+});
+
+function boundedRemote(initial = {}) {
+  const remote = area(initial), set = remote.set;
+  remote.set = async function (values) {
+    S.quota({ ...this.state, ...values });
+    return set.call(this, values);
+  };
+  return remote;
+}
+const recoveryRequest = (d, command, token) => d.request({ action: "resumeSync", command, token });
+
+test("quota exhaustion stops alarms and storage-change retry loops until an explicit retry or edit", async () => {
+  const remote = boundedRemote(), a = device(remote);
+  await a.control("enable");
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: Array.from({length: 4000}, () => webcrypto.randomUUID()).join("") }]);
+  const failed = await a.control();
+  assert.equal(a.storage.local.state[S.STATE].quotaBlocked, true);
+  assert.equal(a.alarms.size, 0);
+  for (const fn of a.c.chrome.storage.onChanged.handlers) fn({ [S.PREFIX + "head:peer"]: {} }, "sync");
+  for (const fn of a.c.chrome.alarms.onAlarm.handlers) fn({ name: "resume-sync-retry" });
+  await a.control("status");
+  assert.equal(a.alarms.size, 0);
+  assert.equal(a.storage.local.state[S.STATE].failures, 1);
+  assert.match(failed.message, /暂停自动重试/);
+  const restarted = device(remote, structuredClone(a.storage.local.state));
+  await restarted.control("status");
+  assert.equal(restarted.alarms.size, 0);
+  await restarted.call("saveTemplateContent", ["tpl-default", { rawText: "缩短" }]);
+  assert.equal(restarted.storage.local.state[S.STATE].quotaBlocked, false);
+  assert.equal((await restarted.control()).pending, false);
+});
+
+test("explicit backed-up rebuild breaks the greater-than-half-full staging deadlock", async () => {
+  const remote = boundedRemote({ unrelated: "keep" }), a = device(remote);
+  const randomText = () => Array.from({length: 2200}, () => webcrypto.randomUUID()).join("");
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: randomText() }]);
+  assert.equal((await a.control("enable")).pending, false);
+  const before = S.stable(remote.state);
+  assert.ok(S.quota(remote.state) > 51200);
+  const current = randomText();
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: current }]);
+  assert.equal((await a.control()).errorCode, "SYNC_QUOTA_EXCEEDED");
+  await a.storage.local.set({ apiKey: "local-secret", modelConfigs: { private: true } });
+  const prepared = await recoveryRequest(a, "prepareRebuild");
+  assert.equal(S.stable(remote.state), before);
+  assert.equal(prepared.backup.templates[0].rawText, current);
+  assert.ok(!JSON.stringify(prepared.backup).includes("local-secret"));
+  assert.equal(a.storage.local.state[S.STATE].enabled, false);
+  await assert.rejects(recoveryRequest(a, "rebuild", "wrong-token"), /先生成恢复备份/);
+  assert.equal(S.stable(remote.state), before);
+  const done = await recoveryRequest(a, "rebuild", prepared.token);
+  assert.equal(done.pending, false);
+  assert.equal(a.storage.local.state[S.STATE].recovery, null);
+  assert.equal(remote.state[S.GENERATION].phase, "ready");
+  assert.equal(remote.state.unrelated, "keep");
+  assert.equal(a.storage.local.state.apiKey, "local-secret");
+  assert.equal(S.materialize(await S.readRecords(remote.state)).templates["tpl-default"].rawText, current);
+  assert.ok(S.quota(remote.state) < 102400);
+  const backedUpRemote = a.storage.local.state[S.RECOVERY_BACKUP].recovery.remote;
+  assert.equal(S.stable(backedUpRemote), S.stable(Object.fromEntries(Object.entries(JSON.parse(before)).filter(([k]) => k.startsWith(S.PREFIX)))));
+});
+
+test("stale device pauses instead of restoring removed data and explicitly backs up before adoption", async () => {
+  const remote = boundedRemote(), a = device(remote), b = device(remote);
+  await a.control("enable"); await b.control("enable");
+  await b.control("enable", false);
+  await b.call("saveTemplateContent", ["tpl-default", { rawText: "乙离线未上传" }]);
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: "甲要保留的版本" }]);
+  const prepared = await recoveryRequest(a, "prepareRebuild");
+  await recoveryRequest(a, "rebuild", prepared.token);
+  const rebuilt = S.stable(remote.state);
+  const paused = await b.control("enable");
+  assert.equal(paused.enabled, false);
+  assert.equal(paused.canAdopt, true);
+  assert.equal(S.stable(remote.state), rebuilt);
+  assert.equal((await b.call("loadTemplateState")).templates[0].rawText, "乙离线未上传");
+  const adoption = await recoveryRequest(b, "prepareAdopt");
+  assert.equal(adoption.backup.templates[0].rawText, "乙离线未上传");
+  await recoveryRequest(b, "adopt", adoption.token);
+  assert.equal((await b.call("loadTemplateState")).templates[0].rawText, "甲要保留的版本");
+  assert.equal(S.stable(remote.state), rebuilt);
+  await b.call("saveTemplateContent", ["tpl-default", { rawText: "接收后继续编辑" }]);
+  await b.control(); await a.control();
+  assert.equal((await a.call("loadTemplateState")).templates[0].rawText, "接收后继续编辑");
+});
+
+test("rebuild works around corrupt remote chunks and keeps their raw backup", async () => {
+  const remote = boundedRemote(), a = device(remote);
+  await a.control("enable");
+  const missing = Object.keys(remote.state).find(k => k.startsWith(S.PREFIX + "part:"));
+  await remote.remove(missing);
+  assert.match((await a.control()).error, /分片尚未到齐/);
+  const before = S.stable(remote.state);
+  const prepared = await recoveryRequest(a, "prepareRebuild");
+  assert.equal(S.stable(prepared.backup.recovery.remote), before);
+  await recoveryRequest(a, "rebuild", prepared.token);
+  assert.equal((await a.control()).pending, false);
+});
+
+test("oversized final data or failed local backup never deletes remote data", async () => {
+  const remote = boundedRemote(), a = device(remote);
+  await a.control("enable");
+  const before = S.stable(remote.state);
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: Array.from({length: 4000}, () => webcrypto.randomUUID()).join("") }]);
+  await assert.rejects(recoveryRequest(a, "prepareRebuild"), /容量不足/);
+  assert.equal(S.stable(remote.state), before);
+  assert.equal(a.storage.local.state[S.STATE].recovery, undefined);
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: "能装下" }]);
+  const set = a.storage.local.set;
+  a.storage.local.set = async function (values) {
+    if (values[S.RECOVERY_BACKUP]) throw new Error("本机备份空间不足");
+    return set.call(this, values);
+  };
+  await assert.rejects(recoveryRequest(a, "prepareRebuild"), /本机备份空间不足/);
+  assert.equal(S.stable(remote.state), before);
+  assert.equal(a.storage.local.state[S.STATE].recovery, undefined);
+});
+
+test("interrupted rebuild survives restart and pauses peers until explicit completion", async () => {
+  const remote = boundedRemote(), a = device(remote), b = device(remote);
+  await a.control("enable"); await b.control("enable");
+  await a.call("saveTemplateContent", ["tpl-default", { rawText: "重建途中不能丢" }]);
+  const prepared = await recoveryRequest(a, "prepareRebuild"), set = remote.set;
+  remote.set = async function (values) {
+    if (Object.keys(values).some(k => k.startsWith(S.PREFIX + "part:"))) throw new Error("上传中断");
+    return set.call(this, values);
+  };
+  await assert.rejects(recoveryRequest(a, "rebuild", prepared.token), /上传中断/);
+  assert.equal(remote.state[S.GENERATION].phase, "rebuilding");
+  assert.equal(a.storage.local.state[S.STATE].enabled, false);
+  assert.equal(a.alarms.size, 0);
+  const interrupted = S.stable(remote.state);
+  const paused = await b.control();
+  assert.equal(paused.enabled, false);
+  assert.equal(paused.canAdopt, false);
+  assert.equal(S.stable(remote.state), interrupted);
+  const restarted = device(remote, structuredClone(a.storage.local.state));
+  await restarted.control("status");
+  assert.equal(restarted.alarms.size, 0);
+  const again = await recoveryRequest(restarted, "prepareRebuild");
+  assert.equal(again.token, prepared.token);
+  remote.set = set;
+  await recoveryRequest(restarted, "rebuild", again.token);
+  assert.equal((await b.control("open")).canAdopt, true);
+  const adoption = await recoveryRequest(b, "prepareAdopt");
+  await recoveryRequest(b, "adopt", adoption.token);
+  assert.equal((await b.call("loadTemplateState")).templates[0].rawText, "重建途中不能丢");
+});
+
+test("a full sync store can reserve the rebuild fence without clearing unrelated settings", async () => {
+  const remote = boundedRemote({ unrelated: "keep" }), a = device(remote);
+  await a.control("enable");
+  let index = 0;
+  while (S.quota(remote.state) < 102400) {
+    const key = S.PREFIX + "part:retired:orphan:" + index++;
+    const remaining = 102400 - S.quota(remote.state) - key.length - 2;
+    if (remaining < 0) break;
+    await remote.set({ [key]: "x".repeat(Math.min(7000, remaining)) });
+  }
+  assert.ok(S.quota(remote.state) > 102350);
+  const prepared = await recoveryRequest(a, "prepareRebuild");
+  await recoveryRequest(a, "rebuild", prepared.token);
+  assert.equal(remote.state.unrelated, "keep");
+  assert.ok(S.quota(remote.state) < 2048);
+  assert.ok(Object.keys(a.storage.local.state[S.RECOVERY_BACKUP].recovery.remote).some(k => k.includes("retired")));
+});
+
+test("adoption rejects local edits or remote generation changes after the backup", async () => {
+  const remote = boundedRemote(), a = device(remote), b = device(remote);
+  await a.control("enable"); await b.control("enable");
+  const first = await recoveryRequest(a, "prepareRebuild");
+  await recoveryRequest(a, "rebuild", first.token);
+  const adoption = await recoveryRequest(b, "prepareAdopt");
+  await b.call("saveTemplateContent", ["tpl-default", { rawText: "备份后的新编辑" }]);
+  await assert.rejects(recoveryRequest(b, "adopt", adoption.token), /本机内容已变化/);
+  const secondAdoption = await recoveryRequest(b, "prepareAdopt");
+  const second = await recoveryRequest(a, "prepareRebuild");
+  await recoveryRequest(a, "rebuild", second.token);
+  await assert.rejects(recoveryRequest(b, "adopt", secondAdoption.token), /远端重建版本已变化/);
+  assert.equal((await b.call("loadTemplateState")).templates[0].rawText, "备份后的新编辑");
+});
+
+test("resuming after the ready marker preserves peer edits instead of clearing again", async () => {
+  const remote = boundedRemote(), a = device(remote), b = device(remote);
+  await a.control("enable"); await b.control("enable");
+  const prepared = await recoveryRequest(a, "prepareRebuild");
+  const set = a.storage.local.set;
+  a.storage.local.set = async function (values) {
+    if (values[S.STATE]?.generation === prepared.token && !values[S.STATE].recovery) throw new Error("本机提交中断");
+    return set.call(this, values);
+  };
+  await assert.rejects(recoveryRequest(a, "rebuild", prepared.token), /本机提交中断/);
+  assert.equal(remote.state[S.GENERATION].phase, "ready");
+  const adoption = await recoveryRequest(b, "prepareAdopt");
+  await recoveryRequest(b, "adopt", adoption.token);
+  await b.call("saveTemplateContent", ["tpl-default", { rawText: "重建后乙的新编辑" }]);
+  await b.control();
+  const before = S.stable(remote.state);
+  const restarted = device(remote, structuredClone(a.storage.local.state));
+  const again = await recoveryRequest(restarted, "prepareRebuild");
+  assert.equal(again.token, prepared.token);
+  await recoveryRequest(restarted, "rebuild", again.token);
+  assert.equal(S.stable(remote.state), before);
+  assert.equal((await restarted.call("loadTemplateState")).templates[0].rawText, "重建后乙的新编辑");
+});
+
+test("superseded rebuild cannot clear a newer generation and can adopt it instead", async () => {
+  const remote = boundedRemote(), a = device(remote), b = device(remote);
+  await a.control("enable"); await b.control("enable");
+  const stale = await recoveryRequest(a, "prepareRebuild");
+  const current = await recoveryRequest(b, "prepareRebuild");
+  await recoveryRequest(b, "rebuild", current.token);
+  const before = S.stable(remote.state);
+  await assert.rejects(recoveryRequest(a, "rebuild", stale.token), /另一设备已重建/);
+  assert.equal(S.stable(remote.state), before);
+  assert.equal((await a.control("open")).canAdopt, true);
+  const adoption = await recoveryRequest(a, "prepareAdopt");
+  await recoveryRequest(a, "adopt", adoption.token);
+  assert.equal(a.storage.local.state[S.STATE].recovery, null);
+  assert.equal(a.storage.local.state[S.STATE].generation, current.token);
 });
