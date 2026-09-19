@@ -47,13 +47,13 @@
     const years = Array.from({ length: new Date().getFullYear() + 20 - 1900 + 1 }, (_, i) => String(i + 1900));
     if (parts && !years.includes(parts.year)) years.push(parts.year);
     years.sort((a, b) => Number(b) - Number(a));
-    fillOptions(year, years, "年", parts?.year || "");
+    fillOptions(year, ["至今", ...years], "年 / 至今", value === "至今" ? "至今" : parts?.year || "");
     fillOptions(month, Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0")), "月（可选）", parts?.month || "");
 
     function refreshDays(selected) {
-      month.disabled = !year.value;
-      if (!year.value) month.value = "";
-      day.disabled = !year.value || !month.value;
+      month.disabled = !year.value || year.value === "至今";
+      if (month.disabled) month.value = "";
+      day.disabled = month.disabled || !month.value;
       const count = day.disabled ? 0 : daysInMonth(Number(year.value), Number(month.value));
       fillOptions(day, Array.from({ length: count }, (_, i) => String(i + 1).padStart(2, "0")), "日（可选）", selected);
     }
@@ -67,13 +67,13 @@
     host.appendChild(clear);
     const legacy = document.createElement("span");
     legacy.className = "resume-date-legacy";
-    legacy.textContent = !parts && value ? `原值：${value}；请选择日期以替换` : "";
+    legacy.textContent = !parts && value && value !== "至今" ? `原值：${value}；请选择日期以替换` : "";
     legacy.hidden = !legacy.textContent;
     host.appendChild(legacy);
 
     function update() {
       refreshDays(day.value);
-      host.value = [year.value, month.value, day.value].filter(Boolean).join("-");
+      host.value = year.value === "至今" ? "至今" : [year.value, month.value, day.value].filter(Boolean).join("-");
       legacy.hidden = true;
       onChange();
     }

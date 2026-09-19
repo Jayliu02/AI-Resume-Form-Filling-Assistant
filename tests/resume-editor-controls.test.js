@@ -115,7 +115,7 @@ test("date picker updates precision, leap days, dependencies and clearing", () =
 
 test("unparseable legacy dates survive until explicitly replaced or cleared", () => {
   const context = loadControls();
-  for (const value of ["至今", "2023-02-29", "2025-13", "待定"]) {
+  for (const value of ["2023-02-29", "2025-13", "待定"]) {
     const host = context.createFieldControl({ input: "date" }, value, "projects.0.endDate");
     assert.equal(host.value, value);
     assert.equal(host.children[4].hidden, false);
@@ -124,6 +124,39 @@ test("unparseable legacy dates survive until explicitly replaced or cleared", ()
     assert.equal(host.value, "2025");
     assert.equal(host.children[4].hidden, true);
   }
+});
+
+test("every date control supports present, switching back to a date and clearing", () => {
+  const context = loadControls();
+  for (const path of ["personal.birthDate", "educations.0.startDate", "workExperiences.0.endDate", "certificates.0.issueDate"]) {
+    const host = context.createFieldControl({ input: "date", label: "日期" }, "2024-02-29", path);
+    const [year, month, day, clear, legacy] = host.children;
+    assert.ok(year.children.some(option => option.value === "至今"));
+    year.value = "至今";
+    year.listeners.change();
+    assert.equal(host.value, "至今");
+    assert.equal(month.value, "");
+    assert.equal(day.value, "");
+    assert.equal(month.disabled, true);
+    assert.equal(day.disabled, true);
+    assert.equal(legacy.hidden, true);
+    year.value = "2025";
+    year.listeners.change();
+    assert.equal(host.value, "2025");
+    assert.equal(month.disabled, false);
+    assert.equal(day.disabled, true);
+    year.value = "至今";
+    year.listeners.change();
+    clear.listeners.click();
+    assert.equal(host.value, "");
+    assert.equal(month.disabled, true);
+  }
+  const restored = context.createFieldControl({ input: "date", label: "日期" }, "至今", "projects.0.endDate");
+  assert.equal(restored.value, "至今");
+  assert.equal(restored.children[0].value, "至今");
+  assert.equal(restored.children[1].disabled, true);
+  assert.equal(restored.children[2].disabled, true);
+  assert.equal(restored.children[4].hidden, true);
 });
 
 test("form collection keeps archived fields while applying visible edits", () => {

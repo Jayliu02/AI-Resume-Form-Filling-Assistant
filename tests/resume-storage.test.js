@@ -303,7 +303,7 @@ test("both resume entry points use the shared local storage helper", () => {
   }
 });
 
-test("schema v7 migration permanently removes deprecated fields from every template", async () => {
+test("schema migration permanently removes deprecated fields from every template", async () => {
   const resumeStorage = loadResumeStorage({ withSchema: true });
   const fake = createStorage({
     local: {
@@ -313,7 +313,8 @@ test("schema v7 migration permanently removes deprecated fields from every templ
           name: "开发简历",
           schemaVersion: 6,
           profile: {
-            personal: { fullName: "张三", englishName: "Sam Zhang" },
+            personal: { fullName: "张三", englishName: "Sam Zhang", summary: "已有个人简介" },
+            additional: { coverLetterHighlights: "旧版重复评价" },
             projects: [{ name: "项目 A", demoUrl: "https://demo.example.com" }],
           },
         },
@@ -323,7 +324,7 @@ test("schema v7 migration permanently removes deprecated fields from every templ
           schemaVersion: 6,
           profile: {
             personal: { fullName: "李四", alternateEmail: "alt@example.com" },
-            additional: { awards: "一等奖", references: "王老师" },
+            additional: { awards: "一等奖", references: "王老师", coverLetterHighlights: "迁移的个人介绍" },
           },
         },
       },
@@ -334,15 +335,19 @@ test("schema v7 migration permanently removes deprecated fields from every templ
   const state = await resumeStorage.loadTemplateState(fake.storage);
   assert.equal(state.templates.length, 2);
   for (const template of state.templates) {
-    assert.equal(template.schemaVersion, 7);
+    assert.equal(template.schemaVersion, 8);
     assert.equal(template.profile.personal.englishName, undefined);
     assert.equal(template.profile.personal.alternateEmail, undefined);
+    assert.equal(template.profile.additional.coverLetterHighlights, undefined);
   }
   assert.equal(state.templates[0].profile.personal.fullName, "张三");
   assert.equal(state.templates[0].profile.projects[0].name, "项目 A");
   assert.equal(state.templates[0].profile.projects[0].demoUrl, undefined);
   assert.equal(state.templates[1].profile.additional.awards, "一等奖");
   assert.equal(state.templates[1].profile.additional.references, undefined);
+  assert.equal(state.templates[0].profile.personal.summary, "已有个人简介");
+  assert.equal(state.templates[1].profile.personal.summary, "迁移的个人介绍");
+  assert.equal(fake.state.local.resumeTemplates["tpl-b"].profile.additional.coverLetterHighlights, undefined);
 
   const writesAfterMigration = fake.calls.localSet.length;
   await resumeStorage.loadTemplateState(fake.storage);

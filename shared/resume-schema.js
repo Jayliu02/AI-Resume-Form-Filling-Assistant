@@ -375,7 +375,6 @@
       type: "group",
       fields: [
         { key: "awards", label: "奖项荣誉", input: "textarea", placeholder: "奖学金、竞赛获奖、优秀员工等" },
-        { key: "coverLetterHighlights", label: "自我评价 / 求职优势", input: "textarea", placeholder: "求职动机、岗位匹配点与个人优势" },
         { key: "customNotes", label: "其他说明", input: "textarea", placeholder: "招聘表单中常见的其他信息" },
       ],
     },
@@ -691,6 +690,10 @@
 
   function normalizeResumeProfile(input) {
     const source = clone(input && typeof input === "object" ? input : {});
+    // Consolidate the old self-evaluation into an empty introduction.
+    if (!hasRawValue(source.personal?.summary) && hasRawValue(source.additional?.coverLetterHighlights)) {
+      source.personal = { ...source.personal, summary: source.additional.coverLetterHighlights };
+    }
     const legacyOnlinePresence =
       source.onlinePresence && typeof source.onlinePresence === "object"
         ? source.onlinePresence
@@ -889,7 +892,7 @@
   }
 
   root.ResumeSchema = {
-    version: 7,
+    version: 8,
     sections: SECTION_DEFINITIONS.filter((section) => !section.hidden),
     getFillProfile,
     clone,

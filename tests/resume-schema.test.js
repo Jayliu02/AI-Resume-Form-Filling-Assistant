@@ -21,6 +21,31 @@ function loadResumeSchema() {
   return context.window.ResumeSchema;
 }
 
+test("self-evaluation migrates only to an empty introduction and leaves the catalog", () => {
+  const schema = loadResumeSchema();
+  const legacy = { additional: { coverLetterHighlights: "旧版自我评价", awards: "奖项" } };
+  const migrated = schema.normalizeResumeProfile(legacy);
+  assert.equal(migrated.personal.summary, "旧版自我评价");
+  assert.equal(migrated.additional.coverLetterHighlights, undefined);
+  assert.equal(migrated.additional.awards, "奖项");
+  const existing = schema.normalizeResumeProfile({ ...legacy, personal: { summary: "已有个人简介" } });
+  assert.equal(existing.personal.summary, "已有个人简介");
+  assert.equal(existing.additional.coverLetterHighlights, undefined);
+  assert.equal(schema.getFieldCatalog().some(field => field.path === "additional.coverLetterHighlights"), false);
+  assert.equal(JSON.parse(schema.createImportTemplateString()).additional.coverLetterHighlights, undefined);
+  assert.equal(schema.getFillProfile(legacy).additional.coverLetterHighlights, undefined);
+});
+
+test("all date fields preserve present through normalization and export JSON", () => {
+  const schema = loadResumeSchema();
+  for (const field of schema.getFieldCatalog().filter(field => field.input === "date")) {
+    const profile = schema.createEmptyResumeProfile({ mode: "max" });
+    schema.setValueByPath(profile, field.path, "至今");
+    const restored = schema.normalizeResumeProfile(JSON.parse(JSON.stringify(profile)));
+    assert.equal(schema.getValueByPath(restored, field.path), "至今", field.path);
+  }
+});
+
 test("resume schema exposes campus recruiting education and experience fields", () => {
   const schema = loadResumeSchema();
   const catalog = schema.getFieldCatalog({ mode: "max" });
@@ -237,7 +262,7 @@ test("zh-CN schema removes redundant fields and keeps contextual date labels", (
   const paths = new Set(catalog.map((field) => field.path));
   removedPaths.forEach((fieldPath) => assert.equal(paths.has(fieldPath), false, fieldPath));
 
-  assert.equal(schema.version, 7);
+  assert.equal(schema.version, 8);
   assert.equal(catalog.find((field) => field.path === "educations.0.startDate").label, "教育经历 1 / 入学时间");
   assert.equal(catalog.find((field) => field.path === "educations.0.endDate").label, "教育经历 1 / 毕业时间");
   assert.equal(catalog.find((field) => field.path === "workExperiences.0.startDate").label, "工作经历 1 / 入职时间");
