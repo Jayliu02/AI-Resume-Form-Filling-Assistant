@@ -77,12 +77,13 @@
       state.pending = true;
       project(state, draft);
       if (result?.id) {
-        const origin = bases[result.id]?.origin || result.id;
+        const origin = bases[result.id]?.origin || before[result.id]?._syncBase?.origin || result.id;
         const written = (state.records[origin] || []).filter(v => v.rev.startsWith(state.device + "-") && Number(v.rev.slice(state.device.length + 1)) > previousCounter);
         const saved = Object.values(draft[R.keys.templates]).find(t => t._syncBase?.origin === origin && written.some(v => Object.entries(v.clock).every(([actor, count]) => (t._syncBase.clock[actor] || 0) >= count)));
         if (saved) {
           result = { ...saved, _syncConflict: Object.values(draft[R.keys.templates]).filter(t => t._syncBase?.origin === origin).length > 1 || saved.id.includes("~conflict~") };
           if (["saveTemplateContent", "importActiveTemplateData"].includes(method)) draft[R.keys.activeTemplateId] = saved.id;
+          if (method === "renameTemplate" && data[R.keys.activeTemplateId] === args[0]) draft[R.keys.activeTemplateId] = saved.id;
         }
       }
     }

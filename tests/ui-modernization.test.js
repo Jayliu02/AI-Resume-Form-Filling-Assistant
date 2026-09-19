@@ -41,7 +41,7 @@ test("dialogs expose accessible semantics and editor motion is minimal", () => {
   assert.match(popupHtml, /id="editModelModal"[^>]+role="dialog"[^>]+aria-modal="true"/);
   assert.match(editorHtml, /id="templateNameModal"[^>]+role="dialog"[^>]+aria-modal="true"/);
   assert.match(editorHtml, /id="pageStatus"[^>]+hidden/);
-  assert.ok(editorHtml.indexOf('id="pageStatus"') < editorHtml.indexOf('id="saveResumeBtn"'));
+  assert.ok(editorHtml.indexOf('id="pageStatus"') > editorHtml.indexOf('</main>'));
   assert.match(popupCss, /prefers-reduced-motion: reduce/);
   assert.match(editorCss, /\.editor-status\[data-status="success"\]/);
   assert.doesNotMatch(editorCss, /#pageStatus\[style\*=/);

@@ -44,9 +44,9 @@
           for (const [device, count] of Object.entries(peer.clock)) clock[device] = Math.max(clock[device] || 0, count);
         }
         templates[id] = { ...copy(v.value), id,
-          name: v.value.name + (first ? "" : "（冲突副本）"),
-          _syncBase: { origin, clock } };
-        origins[id] = { origin, clock };
+          name: v.value.name + (first || v.nameExplicit ? "" : "（冲突副本）"),
+          _syncBase: { origin, clock, nameExplicit: v.nameExplicit === true } };
+        origins[id] = { origin, clock, nameExplicit: v.nameExplicit === true };
         first = false;
       }
     }
@@ -84,12 +84,17 @@
       const actor = staleLocal ? `${state.device}-branch-${state.counter}` : state.device;
       const clock = { ...base.clock, [actor]: state.counter };
       const value = after[id] && !blank(after[id]) ? copy(after[id]) : null;
+      // Remember a user's name for this branch; automatic conflict labels must
+      // not be reapplied after an explicit rename or subsequent content edits.
+      const nameExplicit = base.nameExplicit === true || Boolean(
+        value && id.includes("~conflict~") && before[id] && value.name !== before[id].name
+      );
       if (value) {
         delete value._syncBase; value.id = origin;
-        if (id.includes("~conflict~") && value.name === before[id]?.name) value.name = value.name.replace(/（冲突副本）$/, "");
+        if (!nameExplicit && id.includes("~conflict~") && value.name === before[id]?.name) value.name = value.name.replace(/（冲突副本）$/, "");
       }
       const rev = `${state.device}-${state.counter}`;
-      const next = merge({ [origin]: records[origin] || [] }, { [origin]: [{ rev, clock, value }] });
+      const next = merge({ [origin]: records[origin] || [] }, { [origin]: [{ rev, clock, value, ...(nameExplicit ? { nameExplicit: true } : {}) }] });
       records[origin] = next[origin];
     }
     state.records = records;

@@ -539,7 +539,7 @@
           const base = { ...saved._syncBase, template: saved };
           bases[saved.id] = base;
           if (["saveTemplateContent", "renameTemplate"].includes(method)) bases[args[0]] = base;
-          if (["saveTemplateContent", "importActiveTemplateData"].includes(method)) observedActiveId = saved.id;
+          if (["saveTemplateContent", "importActiveTemplateData"].includes(method) || (method === "renameTemplate" && observedActiveId === args[0])) observedActiveId = saved.id;
         }
         if (method === "setActiveTemplateId") observedActiveId = response.value;
         return response.value;

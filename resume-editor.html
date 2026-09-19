@@ -29,7 +29,6 @@
               <button class="btn btn-outline btn-sm" id="reloadResumeBtn">重新加载</button>
             </div>
           </details>
-          <span class="editor-status" id="pageStatus" data-status="info" role="status" aria-live="polite" hidden></span>
           <button class="btn btn-primary" id="saveResumeBtn">保存</button>
           <details class="editor-menu editor-management">
             <summary class="btn btn-outline btn-sm">简历管理</summary>
@@ -70,6 +69,8 @@
         </details>
       </main>
     </div>
+
+    <div class="editor-status" id="pageStatus" data-status="info" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
     <input type="file" id="importTemplatesFile" accept="application/json" hidden />
 

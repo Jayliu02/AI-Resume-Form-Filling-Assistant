@@ -25,6 +25,58 @@ function loadControls() {
   return context;
 }
 
+test("editor menus close on outside clicks and keep inside controls usable", () => {
+  const listeners = {};
+  const moreTarget = {}, managementTarget = {}, outsideTarget = {};
+  const more = { open: true, contains: target => target === moreTarget };
+  const management = { open: true, contains: target => target === managementTarget };
+  const context = vm.createContext({ document: {
+    addEventListener: (name, handler) => { listeners[name] = handler; },
+    querySelectorAll: () => [more, management].filter(menu => menu.open),
+  } });
+  const source = fs.readFileSync(path.join(__dirname, "../resume-editor.js"), "utf8");
+  vm.runInContext(source.slice(source.indexOf("function initEditorMenus()"), source.indexOf("function initTemplateEvents()")), context);
+  context.initEditorMenus();
+  listeners.click({ target: moreTarget });
+  assert.equal(more.open, true);
+  assert.equal(management.open, false);
+  management.open = true;
+  listeners.click({ target: managementTarget });
+  assert.equal(more.open, false);
+  assert.equal(management.open, true);
+  listeners.click({ target: outsideTarget });
+  assert.equal(management.open, false);
+});
+
+test("renaming a conflict refreshes its selected ID without replacing unsaved form data", async () => {
+  const source = fs.readFileSync(path.join(__dirname, "../resume-editor.js"), "utf8");
+  const saved = { id: "new-conflict-id", name: "默认简历" };
+  const context = vm.createContext({
+    templateNameInput: { value: "默认简历" }, templateNameMode: "rename",
+    templateNameStatus: {}, saveTemplateNameBtn: {}, isRenamingTemplate: false,
+    activeTemplateId: "old-conflict-id", templates: [], isResumeDirty: true,
+    resumeProfile: { name: "未保存的编辑" },
+    resumeStorage: {
+      async renameTemplate(id, name) {
+        assert.equal(id, "old-conflict-id");
+        assert.equal(name, "默认简历");
+        assert.equal(context.isRenamingTemplate, true);
+        return saved;
+      },
+      async loadTemplateState() { return { templates: [saved], activeTemplateId: saved.id }; },
+    },
+    renderTemplateSelectors() {}, updatePageStatus() {}, closeTemplateNameModal() {},
+  });
+  vm.runInContext(source.slice(source.indexOf("async function handleSaveTemplateName()"), source.indexOf("async function handleExportTemplates()")), context);
+  await context.handleSaveTemplateName();
+  assert.equal(context.activeTemplateId, saved.id);
+  assert.equal(context.templates[0].name, "默认简历");
+  assert.equal(context.isResumeDirty, true);
+  assert.equal(context.resumeProfile.name, "未保存的编辑");
+  assert.equal(context.isRenamingTemplate, false);
+  assert.equal(context.saveTemplateNameBtn.disabled, false);
+});
+
 for (const value of ["", "2025", "2025-06", "2024-02-29", "1889-12-01", "2099"]) {
   test(`date picker preserves precision: ${value || "empty"}`, () => {
     const context = loadControls();

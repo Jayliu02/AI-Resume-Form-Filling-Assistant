@@ -9,6 +9,10 @@ body.resume-editor-page {
   position: fixed;
 }
 
+.resume-editor-page .modal-backdrop {
+  backdrop-filter: none;
+}
+
 .editor-shell {
   max-width: 1360px;
   margin: 0 auto;
@@ -96,16 +100,25 @@ body.resume-editor-page {
 
 /* ─── Compact Status ─────────────────────────────────────────────────────── */
 .editor-status {
-  flex: 0 1 240px;
-  min-width: 0;
-  max-width: 240px;
-  overflow: hidden;
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  box-shadow: var(--shadow-sm);
   color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.4;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .editor-status[data-status="success"] { color: #047857; }

@@ -65,6 +65,7 @@ let activeTemplateId = null;
 let isLoadingResume = false;
 let resumeLoadRequestId = 0;
 let templateNameMode = null;
+let isRenamingTemplate = false;
 let pageStatusTimer = null;
 const collapsedResumeSections = new Set();
 const resumeProgressBySection = new Map();
@@ -100,6 +101,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
 
+  if (isRenamingTemplate) return;
+
   if (isResumeDirty || isImporting) {
     updatePageStatus("info", "简历存储有更新；当前编辑已保留，保存时如有冲突将保留副本。完成编辑后可重新加载查看。");
     return;
@@ -111,6 +114,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 function initResumeEditorEvents() {
+  initEditorMenus();
   resumeNavEl.addEventListener("click", (event) => {
     const navBtn = event.target.closest("[data-resume-nav]");
     if (!navBtn) return;
@@ -151,6 +155,14 @@ function initResumeEditorEvents() {
     if (event.key === "Escape" && templateNameModal.classList.contains("open")) {
       closeTemplateNameModal();
     }
+  });
+}
+
+function initEditorMenus() {
+  document.addEventListener("click", (event) => {
+    document.querySelectorAll(".editor-menu[open]").forEach((menu) => {
+      if (!menu.contains(event.target)) menu.open = false;
+    });
   });
 }
 
@@ -251,10 +263,12 @@ async function handleSaveTemplateName() {
   saveTemplateNameBtn.disabled = true;
   try {
     if (templateNameMode === "rename") {
-      await resumeStorage.renameTemplate(activeTemplateId, name);
-      templates = templates.map((template) =>
-        template.id === activeTemplateId ? { ...template, name } : template
-      );
+      isRenamingTemplate = true;
+      const saved = await resumeStorage.renameTemplate(activeTemplateId, name);
+      if (!saved) throw new Error("简历已不存在，请重新加载后重试");
+      const state = await resumeStorage.loadTemplateState();
+      templates = state.templates;
+      activeTemplateId = state.activeTemplateId;
       renderTemplateSelectors();
       updatePageStatus("success", "已重命名模板");
     } else {
@@ -271,6 +285,7 @@ async function handleSaveTemplateName() {
     templateNameStatus.textContent = error.message;
     templateNameStatus.className = "config-status error";
   } finally {
+    isRenamingTemplate = false;
     saveTemplateNameBtn.disabled = false;
   }
 }

@@ -18,7 +18,7 @@ async function edit(records, device, value, bases = {}) {
   const before = S.materialize(records).templates;
   const after = structuredClone(before);
   if (value === null) delete after["tpl-default"];
-  else after["tpl-default"] = template("简历", value);
+  else after["tpl-default"] = template(before["tpl-default"]?.name || "简历", value);
   return (await S.capture({ device, counter: 0, records }, before, after, bases)).records;
 }
 test("Chinese long resumes round trip; partial and corrupt generations are rejected", async () => {
@@ -177,6 +177,44 @@ test("page client advances its saved base without reloading and two stale pages 
   assert.equal(exported.templates.length, 2);
   assert.deepEqual(Array.from(exported.templates, t => t.rawText).sort(), ["旧窗口", "第二次"].sort());
 });
+
+for (const deleted of [false, true]) {
+  test(`conflict rename survives reload, edits and remote sync (deleted sibling: ${deleted})`, async () => {
+    const base = await S.seed({ "tpl-default": template("默认简历") });
+    const left = await edit(base, "a", deleted ? null : "原简历内容");
+    const right = await edit(base, "b", "副本内容");
+    const records = S.merge(left, right);
+    const view = S.materialize(records).templates;
+    const conflict = Object.values(view).find(t => t.id.includes("~conflict~"));
+    assert.equal(conflict.name, "默认简历（冲突副本）");
+    const state = { device: "z", counter: 0, enabled: false, records, pending: false };
+    const remote = area({});
+    const d = device(remote, { [S.STATE]: state, resumeTemplates: view, activeResumeTemplateId: conflict.id });
+    const page = pageClient(d);
+    await page.loadTemplateState();
+    const renamed = await page.renameTemplate(conflict.id, "默认简历");
+    assert.equal(renamed.name, "默认简历");
+    assert.equal(renamed.rawText, "副本内容");
+    assert.notEqual(renamed.id, conflict.id);
+    const loaded = await page.loadTemplateState();
+    assert.equal(loaded.activeTemplateId, renamed.id);
+    assert.equal(loaded.templates.find(t => t.id === renamed.id).name, "默认简历");
+    assert.equal(loaded.templates.length, deleted ? 1 : 2);
+    const saved = await page.saveTemplateContent(renamed.id, { rawText: "副本继续编辑" });
+    assert.equal(saved.name, "默认简历");
+    await d.control("enable");
+    const other = device(remote, { resumeTemplates: {}, activeResumeTemplateId: "" });
+    await other.control("enable");
+    const synced = await other.call("loadTemplateState");
+    assert.equal(synced.templates.find(t => t.rawText === "副本继续编辑").name, "默认简历");
+    assert.equal(synced.templates.length, deleted ? 1 : 2);
+    if (!deleted) assert.ok(synced.templates.some(t => t.rawText === "原简历内容"));
+    const restarted = device(remote, structuredClone(d.storage.local.state));
+    const reloaded = await restarted.call("loadTemplateState");
+    assert.equal(reloaded.templates.find(t => t.rawText === "副本继续编辑").name, "默认简历");
+  });
+}
+
 test("deleting final template creates a local placeholder, not a remote blank resume", async () => {
   const remote = area({}), a = device(remote), b = device(remote);
   await a.control("enable"); await b.control("enable");
