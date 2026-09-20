@@ -28,7 +28,7 @@ function loadContentHelpers() {
     ${extractFunction(
       source,
       "function rectsIntersect(leftRect, rightRect) {",
-      "function pickLikelyFormRoot() {"
+      "function countControls(root) {"
     )}
     ${extractFunction(
       source,

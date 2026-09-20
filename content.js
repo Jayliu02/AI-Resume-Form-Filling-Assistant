@@ -924,8 +924,9 @@
   }
 
   function scanFields({ scope = "page", selectionRect = null } = {}) {
-    const root = scope === "selection" ? document : pickLikelyFormRoot();
-    const elements = collectControls(root);
+    // Resume sections can use separate forms; collect the whole page before
+    // applying the optional selection filter below.
+    const elements = collectControls(document);
 
     const fields = [];
     const runtime = [];
@@ -1262,23 +1263,6 @@
       leftRect.bottom < rightRect.top ||
       leftRect.top > rightRect.bottom
     );
-  }
-
-  function pickLikelyFormRoot() {
-    const forms = Array.from(document.querySelectorAll("form")).filter((form) =>
-      isVisible(form)
-    );
-    if (forms.length === 0) return document;
-
-    const ranked = forms
-      .map((form) => ({ form, count: countControls(form) }))
-      .sort((left, right) => right.count - left.count);
-
-    if (ranked[0]?.count >= 2) {
-      return ranked[0].form;
-    }
-
-    return document;
   }
 
   function countControls(root) {
