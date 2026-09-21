@@ -41,3 +41,4 @@ debug-logs/
 
 # Local snapshots / external test packages
 external-test-package-*/
+output/documents-smoke.png

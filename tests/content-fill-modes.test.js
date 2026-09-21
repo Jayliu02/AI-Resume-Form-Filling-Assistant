@@ -23,7 +23,7 @@ function loadContentHelpers() {
     ${extractFunction(
       source,
       "function normalizeSelectionRect(startPoint, endPoint) {",
-      "function scanFields({ scope = \"page\", selectionRect = null } = {}) {"
+      "function scanFields({ scope = \"page\", selectionRect = null, includeDisabled = false } = {}) {"
     )}
     ${extractFunction(
       source,

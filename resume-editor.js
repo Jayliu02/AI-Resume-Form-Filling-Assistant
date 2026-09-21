@@ -91,7 +91,7 @@ window.addEventListener("beforeunload", (event) => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "local" && areaName !== "sync") return;
+  if (areaName !== "local") return;
   if (
     !changes[RESUME_TEMPLATES_KEY] &&
     !changes[RESUME_ACTIVE_TEMPLATE_KEY] &&
@@ -318,23 +318,6 @@ async function handleExportTemplates() {
     updatePageStatus("error", `导出失败：${error.message}`);
   }
 }
-
-// Recovery saves the current form and prevents edits while its backup and
-// replacement are in flight. A save failure aborts before any sync deletion.
-window.ResumeEditorSyncRecovery = {
-  async begin() {
-    if (isLoadingResume || isImporting) throw new Error("请等待简历加载或导入完成后再修复同步");
-    const targets = [document.querySelector("main"), ...document.querySelectorAll(".editor-toolbar > :not(.editor-management), .editor-management .action-row")].filter(Boolean);
-    const previous = targets.map(el => [el, el.inert]);
-    const unlock = () => previous.forEach(([el, inert]) => { el.inert = inert; });
-    targets.forEach(el => { el.inert = true; });
-    try {
-      if (isResumeDirty) await persistResumeProfile({ silent: true });
-      return unlock;
-    } catch (error) { unlock(); throw error; }
-  },
-  reload: () => loadResumeProfile(),
-};
 
 async function handleImportTemplates() {
   const file = importTemplatesFileEl.files?.[0];
@@ -840,7 +823,7 @@ async function persistResumeProfile({ silent = false } = {}) {
 
   isResumeDirty = false;
   saveResumeBtn.disabled = true;
-  if (savedTemplate?._syncConflict) {
+  if (savedTemplate?._localConflict) {
     await loadResumeProfile();
     updatePageStatus("info", "已保存；检测到并发修改，已保留冲突副本，请在模板列表中检查整理。");
     return;

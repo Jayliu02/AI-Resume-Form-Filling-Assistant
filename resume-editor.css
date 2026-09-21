@@ -613,12 +613,6 @@ body.resume-editor-page {
 .resume-date-control select { min-width: 0; padding: 9px 5px; }
 .resume-date-clear { grid-column: 3; justify-self: end; }
 .resume-date-legacy { grid-column: 1 / -1; font-size: 13px; overflow-wrap: anywhere; color: var(--text-secondary); }
-#resumeSyncPanel { font-size: 14px; line-height: 1.6; }
-#resumeSyncPanel p { margin: 8px 0; }
-#resumeSyncPanel summary { cursor: pointer; }
-#resumeSyncPanel label { display: flex; align-items: center; gap: 8px; }
-#resumeSyncPanel input[type="checkbox"] { width: auto; }
-#resumeSyncPanel button { margin-top: 8px; }
 .resume-section-head .resume-section-toggle { width: 100%; }
 @media (max-width: 640px) {
   .editor-toolbar .template-select { max-width: none; flex-basis: 100%; }

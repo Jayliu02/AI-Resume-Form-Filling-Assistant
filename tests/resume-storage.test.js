@@ -82,47 +82,22 @@ test("large resume data is saved only to local storage", async () => {
   assert.equal("resumeTemplates" in fake.state.sync, false);
 });
 
-test("legacy synchronized resume data is migrated into the default template", async () => {
-  const resumeStorage = loadResumeStorage();
-  const profile = { personal: { name: "旧版用户" } };
-  const fake = createStorage({
-    sync: {
-      resumeStructured: profile,
-      resumeRawText: "旧版原始简历",
-      resumeSchemaVersion: 3,
-    },
-  });
-
-  const state = await resumeStorage.loadTemplateState(fake.storage);
-
-  assert.equal(state.activeTemplateId, resumeStorage.DEFAULT_TEMPLATE_ID);
-  const saved = fake.state.local.resumeTemplates[resumeStorage.DEFAULT_TEMPLATE_ID];
-  assert.deepEqual(saved.profile, profile);
-  assert.equal(saved.rawText, "旧版原始简历");
-  assert.equal(saved.schemaVersion, 3);
-  assert.equal("resumeStructured" in fake.state.sync, false);
-  assert.equal("resumeRawText" in fake.state.sync, false);
+test("legacy local resume migrates without consulting cloud data", async () => {
+  const storage = loadResumeStorage();
+  const fake = createStorage({ local: { resumeStructured: { personal: { name: "Local" } }, resumeRawText: "Local text" }, sync: { resumeProfile: { personal: { name: "Cloud" } } } });
+  const state = await storage.loadTemplateState(fake.storage);
+  assert.equal(state.templates[0].profile.personal.name, "Local");
+  assert.equal(state.templates[0].rawText, "Local text");
+  assert.equal(fake.calls.syncGet, 0);
+  assert.equal(fake.calls.syncRemove.length, 0);
 });
-
-test("current synchronized resume data is migrated without data loss", async () => {
-  const resumeStorage = loadResumeStorage();
-  const profile = { personal: { name: "同步用户" } };
-  const fake = createStorage({
-    sync: {
-      resumeProfile: profile,
-      resumeImportRawText: "同步原始简历",
-      resumeSchemaVersion: 6,
-    },
-  });
-
-  const state = await resumeStorage.loadTemplateState(fake.storage);
-  const saved = fake.state.local.resumeTemplates[state.activeTemplateId];
-
-  assert.deepEqual(saved.profile, profile);
-  assert.equal(saved.rawText, "同步原始简历");
-  assert.equal(saved.schemaVersion, 6);
-  assert.equal("resumeProfile" in fake.state.sync, false);
-  assert.equal("resumeImportRawText" in fake.state.sync, false);
+test("cloud-only resumes never resurrect during local loading", async () => {
+  const storage = loadResumeStorage();
+  const fake = createStorage({ sync: { resumeProfile: { personal: { name: "Cloud" } } } });
+  const state = await storage.loadTemplateState(fake.storage);
+  assert.equal(JSON.stringify(state.templates[0].profile), "{}");
+  assert.equal(fake.calls.syncGet, 0);
+  assert.equal(fake.calls.syncRemove.length, 0);
 });
 
 test("complete local templates are preferred without reading sync storage", async () => {

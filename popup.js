@@ -863,6 +863,15 @@ function isSupportedWebPageUrl(url) {
   }
 }
 
+document.getElementById("analyzePageRequirementsBtn").addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const query = new URLSearchParams();
+  if (tab?.id && /^https?:\/\//.test(tab.url || "")) query.set("sourceTabId", tab.id);
+  const templateId = document.getElementById("fillTemplateSelect").value;
+  if (templateId) query.set("templateId", templateId);
+  await chrome.tabs.create({ url: chrome.runtime.getURL("resume-documents.html") + "?" + query });
+});
+
 async function ensureContentScriptInjected(tabId) {
   let staleScriptDetected = false;
 

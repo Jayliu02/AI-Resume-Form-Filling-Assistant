@@ -7,7 +7,7 @@ const { webcrypto } = require("node:crypto");
 const read = (file) => fs.readFileSync(path.join(__dirname, "..", file), "utf8");
 function load() {
   const c = vm.createContext({ structuredClone, URL, crypto: webcrypto, TextEncoder, Blob, Response, CompressionStream, DecompressionStream, btoa, atob });
-  for (const file of ["resume-schema", "resume-prompts", "resume-storage", "resume-sync"]) vm.runInContext(read(`shared/${file}.js`), c);
+  for (const file of ["resume-schema", "resume-prompts", "resume-storage"]) vm.runInContext(read(`shared/${file}.js`), c);
   return c;
 }
 const field = { key: "custom_advisor", label: "导师邮箱", input: "email", placeholder: "" };
@@ -121,23 +121,4 @@ test("storage save, duplicate and backup round trip preserve config; invalid imp
   backup.templates[0].profile.fieldConfig.version = 99;
   await assert.rejects(storage.importTemplateData(backup, fake));
   assert.equal(JSON.stringify(data), before);
-});
-
-test("sync packing and concurrent conflicts preserve independent field definitions", async () => {
-  const c = load(), s = c.ResumeSchema, sync = c.ResumeSync;
-  const p = customized(s);
-  const base = await sync.seed({ t: { id: "t", name: "Resume", profile: p, rawText: "", schemaVersion: s.version } });
-  async function changed(device, label) {
-    const before = sync.materialize(base).templates;
-    const after = structuredClone(before);
-    after.t.profile.fieldConfig.sections[0].fields.at(-1).label = label;
-    return (await sync.capture({ device, counter: 0, records: base }, before, after, {})).records;
-  }
-  const merged = sync.merge(await changed("a", "A"), await changed("b", "B"));
-  const packed = await sync.pack(merged);
-  const head = { version: 1, digest: packed.digest, count: packed.parts.length, prefix: "part:" };
-  const unpacked = await sync.unpack(head, Object.fromEntries(packed.parts.map((v, i) => [`part:${i}`, v])));
-  const profiles = Object.values(sync.materialize(unpacked).templates).map(t => t.profile);
-  assert.equal(profiles.length, 2);
-  assert.deepEqual(profiles.map(p => p.fieldConfig.sections[0].fields.at(-1).label).sort(), ["A", "B"]);
 });

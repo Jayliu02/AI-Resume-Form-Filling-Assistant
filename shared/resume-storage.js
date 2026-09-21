@@ -102,7 +102,6 @@
       schemaVersion: value.schemaVersion,
       createdAt: text(value.createdAt) || nowIso(),
       updatedAt: text(value.updatedAt) || nowIso(),
-      ...(value._syncBase ? { _syncBase: value._syncBase } : {}),
     };
   }
 
@@ -173,33 +172,19 @@
 
   async function loadLegacyResumeData(storage) {
     const localData = await storage.local.get(allLegacyKeys);
-    const needsSyncFallback =
-      !isMeaningfulProfile(localData[keys.profile]) ||
-      !hasOwn(localData, keys.rawText) ||
-      !hasOwn(localData, keys.schemaVersion);
-    const syncData =
-      needsSyncFallback && storage.sync?.get
-        ? await storage.sync.get(allLegacyKeys)
-        : {};
-
     const profileEntry = pickStoredValue(
       [
         { data: localData, key: keys.profile },
         { data: localData, key: keys.legacyProfile },
-        { data: syncData, key: keys.profile },
-        { data: syncData, key: keys.legacyProfile },
       ],
       { preferMeaningful: true }
     );
     const rawTextEntry = pickStoredValue([
       { data: localData, key: keys.rawText },
       { data: localData, key: keys.legacyRawText },
-      { data: syncData, key: keys.rawText },
-      { data: syncData, key: keys.legacyRawText },
     ]);
     const schemaVersionEntry = pickStoredValue([
       { data: localData, key: keys.schemaVersion },
-      { data: syncData, key: keys.schemaVersion },
     ]);
 
     return {
@@ -268,7 +253,6 @@
 
     // 清理旧 key
     await removeIfAvailable(storage.local, allLegacyKeys);
-    await removeIfAvailable(storage.sync, allLegacyKeys);
 
     return { templates, activeTemplateId };
   }
@@ -451,7 +435,6 @@
 
     await persistTemplates(storage, templates, activeTemplateId);
     await removeIfAvailable(storage.local, allLegacyKeys);
-    await removeIfAvailable(storage.sync, allLegacyKeys);
 
     return { templates, activeTemplateId };
   }
@@ -532,17 +515,16 @@
         if (args.length >= fn.length && args[fn.length - 1]?.local) return fn(...args);
         const response = await root.chrome.runtime.sendMessage({ action: "resumeStorage", method, args, bases, observedActiveId });
         if (!response?.ok) throw new Error(response?.error || "简历存储后台未响应");
-        if (method === "loadTemplateState") {
+        if (response.value?.templates) {
+          bases = Object.fromEntries(response.value.templates.map(t => [t.id, { template: t }]));
           observedActiveId = response.value.activeTemplateId;
-          bases = Object.fromEntries(response.value.templates.map(t => [t.id, { ...(t._syncBase || { origin: t.id, clock: {} }), template: t }]));
-        } else if (response.value?._syncBase) {
-          const saved = response.value;
-          const base = { ...saved._syncBase, template: saved };
-          bases[saved.id] = base;
-          if (["saveTemplateContent", "renameTemplate"].includes(method)) bases[args[0]] = base;
-          if (["saveTemplateContent", "importActiveTemplateData"].includes(method) || (method === "renameTemplate" && observedActiveId === args[0])) observedActiveId = saved.id;
+        } else if (response.value?.id) {
+          const { _localConflict, ...saved } = response.value;
+          bases[saved.id] = { template: saved };
+          if (_localConflict || method === "importActiveTemplateData") observedActiveId = saved.id;
         }
-        if (method === "setActiveTemplateId") observedActiveId = response.value;
+        if (method === "deleteTemplate") delete bases[args[0]];
+        if (method === "setActiveTemplateId" || method === "deleteTemplate") observedActiveId = response.value;
         return response.value;
       };
     }

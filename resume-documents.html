@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>填写要求文档</title>
+  <link rel="stylesheet" href="popup.css"><link rel="stylesheet" href="resume-documents.css">
+</head>
+<body>
+  <main class="documents-shell">
+    <header><h1>填写要求文档</h1><p>积累招聘页面要求，对照简历发现需要补充的资料。</p><a href="resume-editor.html">打开简历配置</a></header>
+    <div class="documents-layout">
+      <aside>
+        <button id="newDocument" class="btn btn-primary">新建文档</button>
+        <label for="documentList">本地文档库</label><select id="documentList" size="12" aria-label="本地文档库"></select>
+        <button id="exportLibrary" class="btn btn-outline">导出文档库 JSON</button>
+        <button id="importLibrary" class="btn btn-outline">导入文档库 JSON</button><input id="importFile" type="file" accept="application/json" hidden>
+      </aside>
+      <section>
+        <label for="documentTitle">文档名称</label><input id="documentTitle" maxlength="200" placeholder="例如：校招研发岗位填写要求">
+        <div class="capture-controls">
+          <label for="sourceTab">采集网页</label><select id="sourceTab"></select><button id="refreshTabs" class="btn btn-outline">刷新网页列表</button>
+          <button id="capturePage" class="btn btn-outline">读取当前页面并追加</button>
+        </div>
+        <p>读取字段要求及当前已填写的内容。网页填写变化后请重新读取，并选择替换原记录；不会自动填写、点击下一步或提交。</p>
+        <details class="document-fold" id="pageSources"><summary>采集页面与字段证据 <span id="pageSourceCount"></span></summary><div id="pages"></div></details>
+        <label for="compareResume">对照简历（使用已保存版本）</label><select id="compareResume"></select>
+        <p>点击分析会将采集的字段要求、网页已填内容及所选简历字段发送给已配置的 AI 模型，用于对照资料缺口。不会读取密码、隐藏项或附件内容，也不会自动修改简历。</p>
+        <div class="document-actions">
+          <button id="analyzeDocument" class="btn btn-primary">AI 分析 / 重新分析</button>
+          <button id="saveDocument" class="btn btn-primary">保存文档</button>
+          <button id="exportMarkdown" class="btn btn-outline">导出 Markdown</button>
+          <button id="exportDraft" class="btn btn-outline">导出当前 JSON</button>
+          <button id="deleteDocument" class="btn btn-outline">删除文档</button>
+        </div>
+        <p id="documentStatus" role="status" aria-live="polite"></p>
+        <details class="document-fold" id="analysisDetails"><summary>分析依据与资料缺口 <span id="analysisCount"></span></summary><article id="analysisPreview" aria-label="分析预览"></article></details>
+        <section id="suggestionReview" aria-label="简历修改建议审批"></section>
+      </section>
+    </div>
+  </main>
+  <dialog id="duplicatePage"><h2>此地址已经采集过</h2><p>若网站不同步骤使用相同地址，请保留为新步骤。</p><label for="replacePage">要替换的记录</label><select id="replacePage"></select><div class="document-actions"><button id="replaceDuplicate" class="btn btn-primary">替换所选记录</button><button id="appendDuplicate" class="btn btn-outline">保留为新步骤</button><button id="cancelDuplicate" class="btn btn-outline">取消</button></div></dialog>
+  <script src="shared/resume-schema.js"></script><script src="shared/resume-storage.js"></script>
+  <script src="shared/model-storage.js"></script><script src="shared/ai-client.js"></script><script src="shared/resume-suggestions.js"></script><script src="shared/resume-documents.js"></script>
+  <script src="shared/resume-suggestions-ui.js"></script>
+  <script src="resume-documents.js"></script>
+</body>
+</html>

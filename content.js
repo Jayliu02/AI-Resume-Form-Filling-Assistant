@@ -122,6 +122,15 @@
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const action = message?.action;
 
+    if (action === "captureRequirements") {
+      if (_sender?.id !== chrome.runtime.id) return;
+      try {
+        if (!window.ResumePageRequirements) throw new Error("请刷新招聘网页后重试采集");
+        sendResponse({ success: true, page: window.ResumePageRequirements.capture(scanFields({ includeDisabled: true })) });
+      } catch (error) { sendResponse({ success: false, error: error.message }); }
+      return;
+    }
+
     if (action === "ping") {
       sendResponse({
         success: true,
@@ -923,7 +932,7 @@
     };
   }
 
-  function scanFields({ scope = "page", selectionRect = null } = {}) {
+  function scanFields({ scope = "page", selectionRect = null, includeDisabled = false } = {}) {
     // Resume sections can use separate forms; collect the whole page before
     // applying the optional selection filter below.
     const elements = collectControls(document);
@@ -936,7 +945,7 @@
     const checkboxGroups = new Map();
 
     for (const el of elements) {
-      if (!isFillableElement(el)) continue;
+      if (!includeDisabled && !isFillableElement(el)) continue;
 
       const tag = el.tagName.toLowerCase();
       const baseInputType = tag === "input"
