@@ -1,9 +1,9 @@
 (function initResumePrompts(root) {
   "use strict";
 
-  function buildResumeImportPrompt(schema, rawText) {
+  function buildResumeImportPrompt(schema, rawText, profile) {
     const optionRules = schema
-      .getFieldCatalog()
+      .getFieldCatalog({ profile })
       .filter((field) => Array.isArray(field.options) && field.options.length > 0)
       .map(
         (field) =>
@@ -23,8 +23,10 @@
       optionRules,
       "7. 论文、专利及其他个人成果填写到 personalAchievements；只提取成果名称、简介和已知精度的日期，不得猜测未知信息。",
       "",
-      "固定 JSON 模板：",
-      schema.createImportTemplateString(),
+      "字段说明（名称、类型和输入提示）：",
+      JSON.stringify(schema.getFieldCatalog({ profile }).map(({ path, label, input, placeholder }) => ({ path, label, input, placeholder }))),
+      "固定 JSON 模板（输出此结构）：",
+      schema.createImportTemplateString(profile),
       "",
       "原始简历内容：",
       String(rawText || ""),

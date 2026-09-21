@@ -227,7 +227,7 @@
       }
 
       const cacheSignature = createMappingCacheSignature(scan.fields);
-      const cacheKey = createMappingCacheKeyFromSignature(cacheSignature);
+      const cacheKey = createMappingCacheKeyFromSignature(cacheSignature, schema.getFieldCatalog({ mode: "max", profile: resumeProfile }));
       let mappings = null;
       let cacheHit = false;
 
@@ -238,7 +238,7 @@
       });
       const cachedEntry = cacheLookup.entry;
       if (cachedEntry?.mappings?.length) {
-        mappings = normalizeMappings(cachedEntry.mappings, scan.fields);
+        mappings = normalizeMappings(cachedEntry.mappings, scan.fields, resumeProfile);
         cacheHit = true;
         sendLog("info", "已命中本地字段映射缓存，跳过模型调用。");
       } else {
@@ -255,7 +255,7 @@
           "field_mapping"
         );
         const parsed = parseJsonFromAiText(aiText);
-        mappings = normalizeMappings(parsed?.mappings, scan.fields);
+        mappings = normalizeMappings(parsed?.mappings, scan.fields, resumeProfile);
 
         await saveMappingCacheEntry(cacheKey, {
           updatedAt: Date.now(),
@@ -641,10 +641,10 @@
     }
   }
 
-  function normalizeMappings(rawMappings, fields) {
+  function normalizeMappings(rawMappings, fields, resumeProfile) {
     const validFieldIds = new Set(fields.map((field) => String(field.fieldId)));
     const validResumePaths = new Set(
-      schema.getFieldCatalog({ mode: "max" }).map((field) => field.path)
+      schema.getFieldCatalog({ mode: "max", profile: resumeProfile }).map((field) => field.path)
     );
     const normalized = [];
 
@@ -2322,8 +2322,8 @@
     return createMappingCacheKeyFromSignature(createMappingCacheSignature(fields));
   }
 
-  function createMappingCacheKeyFromSignature(signature) {
-    const base = `${location.origin}${location.pathname}::${JSON.stringify(signature)}`;
+  function createMappingCacheKeyFromSignature(signature, resumeFields = []) {
+    const base = `${location.origin}${location.pathname}::${JSON.stringify(signature)}::${JSON.stringify(resumeFields)}`;
     return `${location.host}:${hashString(base)}`;
   }
 

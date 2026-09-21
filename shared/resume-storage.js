@@ -306,9 +306,9 @@
     }
     next.updatedAt = nowIso();
 
-    state.templates[index] = next;
+    state.templates[index] = normalizeTemplatesForCurrentSchema([next]).templates[0];
     await persistTemplates(storage, state.templates, state.activeTemplateId);
-    return next;
+    return state.templates[index];
   }
 
   async function createTemplate(name, storageOverride) {
@@ -443,6 +443,7 @@
       templates = [buildEmptyTemplate(DEFAULT_TEMPLATE_ID, DEFAULT_TEMPLATE_NAME)];
     }
 
+    templates = normalizeTemplatesForCurrentSchema(templates).templates;
     let activeTemplateId = text(data.activeTemplateId);
     if (!templates.some((template) => template.id === activeTemplateId)) {
       activeTemplateId = templates[0].id;
@@ -493,9 +494,9 @@
     );
     const next = {
       ...(active || buildEmptyTemplate(state.activeTemplateId, DEFAULT_TEMPLATE_NAME)),
-      profile: clone(profile),
+      profile: root.ResumeSchema ? root.ResumeSchema.normalizeResumeProfile(profile) : clone(profile),
       rawText: text(source.rawText),
-      schemaVersion: source.schemaVersion,
+      schemaVersion: root.ResumeSchema?.version || source.schemaVersion,
       updatedAt: nowIso(),
     };
     const templates = state.templates.map((template) =>

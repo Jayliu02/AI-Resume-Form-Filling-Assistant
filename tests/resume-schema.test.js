@@ -262,7 +262,7 @@ test("zh-CN schema removes redundant fields and keeps contextual date labels", (
   const paths = new Set(catalog.map((field) => field.path));
   removedPaths.forEach((fieldPath) => assert.equal(paths.has(fieldPath), false, fieldPath));
 
-  assert.equal(schema.version, 8);
+  assert.equal(schema.version, 9);
   assert.equal(catalog.find((field) => field.path === "educations.0.startDate").label, "教育经历 1 / 入学时间");
   assert.equal(catalog.find((field) => field.path === "educations.0.endDate").label, "教育经历 1 / 毕业时间");
   assert.equal(catalog.find((field) => field.path === "workExperiences.0.startDate").label, "工作经历 1 / 入职时间");

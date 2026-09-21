@@ -335,7 +335,7 @@ test("schema migration permanently removes deprecated fields from every template
   const state = await resumeStorage.loadTemplateState(fake.storage);
   assert.equal(state.templates.length, 2);
   for (const template of state.templates) {
-    assert.equal(template.schemaVersion, 8);
+    assert.equal(template.schemaVersion, 9);
     assert.equal(template.profile.personal.englishName, undefined);
     assert.equal(template.profile.personal.alternateEmail, undefined);
     assert.equal(template.profile.additional.coverLetterHighlights, undefined);

@@ -59,6 +59,7 @@ const BUILTIN_MODEL = modelStorage.DEFAULT_MODEL;
 
 let isImporting = false;
 let isResumeDirty = false;
+let isManagingResumeFields = false;
 let resumeProfile = schema.createEmptyResumeProfile();
 let templates = [];
 let activeTemplateId = null;
@@ -69,7 +70,6 @@ let isRenamingTemplate = false;
 let pageStatusTimer = null;
 const collapsedResumeSections = new Set();
 const resumeProgressBySection = new Map();
-const EDITOR_SECTIONS = buildEditorSections();
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
@@ -85,7 +85,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 window.addEventListener("beforeunload", (event) => {
-  if (!isResumeDirty) return;
+  if (!isResumeDirty && !isManagingResumeFields) return;
   event.preventDefault();
   event.returnValue = "";
 });
@@ -103,7 +103,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
   if (isRenamingTemplate) return;
 
-  if (isResumeDirty || isImporting) {
+  if (isResumeDirty || isImporting || isManagingResumeFields) {
     updatePageStatus("info", "简历存储有更新；当前编辑已保留，保存时如有冲突将保留副本。完成编辑后可重新加载查看。");
     return;
   }
@@ -115,6 +115,16 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 function initResumeEditorEvents() {
   initEditorMenus();
+  document.getElementById("manageFieldsBtn").addEventListener("click", () => {
+    if (isImporting || isLoadingResume) return;
+    syncResumeProfileFromForm();
+    isManagingResumeFields = true;
+    ResumeFieldManager.open(resumeProfile, (profile) => {
+      resumeProfile = profile;
+      renderResumeEditor(profile);
+      markResumeDirty();
+    }, () => { isManagingResumeFields = false; });
+  });
   resumeNavEl.addEventListener("click", (event) => {
     const navBtn = event.target.closest("[data-resume-nav]");
     if (!navBtn) return;
@@ -441,15 +451,15 @@ async function loadResumeProfile() {
 }
 
 function buildEditorSections() {
-  return schema.sections.filter((section) => !["certificates", "languages"].includes(section.key)).map((section) =>
+  return schema.getSections(resumeProfile).filter((section) => !["certificates", "languages"].includes(section.key)).map((section) =>
     section.key === "skills"
-      ? { ...section, label: "技能与证书", children: [section, schema.getSectionDefinition("certificates"), schema.getSectionDefinition("languages")] }
+      ? { ...section, label: "技能与证书", children: [section, schema.getSectionDefinition("certificates", resumeProfile), schema.getSectionDefinition("languages", resumeProfile)] }
       : { ...section, children: [section] }
   );
 }
 
 function getEditorSections() {
-  return EDITOR_SECTIONS;
+  return buildEditorSections();
 }
 
 function editorSectionKey(key) {
@@ -674,7 +684,7 @@ function buildResumeSectionStats(profile) {
   const statsBySection = new Map();
   const catalog = schema.getCatalogWithValues(profile);
 
-  for (const section of schema.sections) {
+  for (const section of schema.getSections(profile)) {
     const items = Array.isArray(profile[section.key]) ? profile[section.key] : [];
     statsBySection.set(section.key, {
       totalFields: 0,
@@ -770,14 +780,14 @@ function focusResumeField(path) {
 }
 
 function addResumeListItem(sectionKey) {
-  const section = schema.getSectionDefinition(sectionKey);
+  const section = schema.getSectionDefinition(sectionKey, resumeProfile);
   if (!section || section.type !== "list") return;
 
   const nextProfile = syncResumeProfileFromForm();
   const items = Array.isArray(nextProfile[sectionKey]) ? [...nextProfile[sectionKey]] : [];
   if (items.length >= section.slots) return;
 
-  items.push(schema.createEmptyListItem(sectionKey));
+  items.push(schema.createEmptyListItem(sectionKey, resumeProfile));
   // The profile is already normalized; keep the new empty final slot editable.
   resumeProfile = {
     ...nextProfile,
@@ -796,7 +806,7 @@ function addResumeListItem(sectionKey) {
 }
 
 function removeResumeListItem(sectionKey, itemIndex) {
-  const section = schema.getSectionDefinition(sectionKey);
+  const section = schema.getSectionDefinition(sectionKey, resumeProfile);
   if (!section || section.type !== "list") return;
 
   const minItems = Math.max(1, Number(section.initialItems) || 1);
@@ -918,7 +928,8 @@ async function importResumeToSchema(rawText) {
   try {
     const prompt = resumePrompts.buildResumeImportPrompt(
       schema,
-      limitTextForPrompt(text)
+      limitTextForPrompt(text),
+      resumeProfile
     );
     const aiText = await aiClient.callAI(activeModel.id, prompt, "resume_import");
     const parsed = parseJsonFromAiText(aiText);
@@ -929,6 +940,8 @@ async function importResumeToSchema(rawText) {
     for (const key of ["publications", "patents"]) {
       if (resumeProfile.additional?.[key]) source.additional[key] = resumeProfile.additional[key];
     }
+    if (resumeProfile.fieldConfig) source.fieldConfig = schema.clone(resumeProfile.fieldConfig);
+    else delete source.fieldConfig;
     const normalized = schema.normalizeResumeProfile(source);
     resumeProfile = normalized;
     resumeImportTextEl.value = text;

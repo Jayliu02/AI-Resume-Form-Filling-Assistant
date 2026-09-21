@@ -433,8 +433,77 @@
     return out;
   }
 
-  function getSectionDefinition(sectionKey) {
-    return SECTION_DEFINITIONS.find((section) => section.key === sectionKey) || null;
+  const FIELD_TYPES = ["text", "textarea", "date", "select", "email", "tel", "url"];
+  const safeKey = (key) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(key) && !["constructor", "prototype", "__proto__"].includes(key);
+
+  function normalizeFieldConfig(config) {
+    if (!config) return null;
+    if (config.version !== 1 || !Array.isArray(config.sections)) throw new Error("字段配置版本或格式无效");
+    const seen = new Set();
+    return { version: 1, sections: config.sections.map((entry) => {
+      const base = SECTION_DEFINITIONS.find((s) => s.key === entry?.key && !s.hidden);
+      if (!base || seen.has(entry.key) || !Array.isArray(entry.fields)) throw new Error("字段分区配置无效");
+      seen.add(entry.key);
+      const keys = new Set(), labels = new Set();
+      const fields = entry.fields.map((field) => {
+        const label = String(field?.label || "").trim();
+        if (!safeKey(field?.key || "") || keys.has(field.key) || !label || labels.has(label) || !FIELD_TYPES.includes(field.input)) throw new Error("字段名称、标识或类型无效");
+        if (!base.fields.some((f) => f.key === field.key) && !/^custom_[a-zA-Z0-9_]+$/.test(field.key)) throw new Error("自定义字段标识无效");
+        keys.add(field.key); labels.add(label);
+        const out = { key: field.key, label, input: field.input, placeholder: String(field.placeholder || "") };
+        if (field.input === "select") {
+          if (!Array.isArray(field.options) || field.options.some((v) => typeof v !== "string")) throw new Error("下拉选项无效");
+          out.options = ["", ...new Set(field.options.map((v) => v.trim()).filter(Boolean))];
+          if (out.options.length < 2) throw new Error("请至少添加一个下拉选项");
+        }
+        return out;
+      });
+      // A configured section is authoritative; absent built-in fields are deleted.
+      return { key: entry.key, fields };
+    }) };
+  }
+
+  function getSections(profile) {
+    const config = normalizeFieldConfig(profile?.fieldConfig);
+    return SECTION_DEFINITIONS.map((section) => {
+      const configured = config?.sections.find((s) => s.key === section.key);
+      return configured ? { ...section, fields: configured.fields.map((field) => ({
+        ...section.fields.find((f) => f.key === field.key), ...field, options: field.options || [],
+      })) } : section;
+    }).filter((section) => !section.hidden);
+  }
+
+  function getSectionDefinition(sectionKey, profile) {
+    return getSections(profile).find((section) => section.key === sectionKey) || SECTION_DEFINITIONS.find((s) => s.key === sectionKey && s.hidden) || null;
+  }
+
+  function updateSectionFields(profile, sectionKey, fields) {
+    const next = clone(profile);
+    const config = normalizeFieldConfig(next.fieldConfig) || { version: 1, sections: [] };
+    config.sections = config.sections.filter((s) => s.key !== sectionKey);
+    config.sections.push({ key: sectionKey, fields });
+    next.fieldConfig = normalizeFieldConfig(config);
+    return normalizeResumeProfile(next);
+  }
+
+  function convertFieldValue(field, value) {
+    const text = String(value ?? "");
+    if (!text) return { value: "", compatible: true };
+    let converted = text;
+    let compatible = true;
+    if (field.input === "select") compatible = field.options.includes(text);
+    else if (field.input === "date") {
+      converted = normalizeDateValue(text);
+      const match = converted.match(/^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/);
+      const year = Number(match?.[1]), month = Number(match?.[2]);
+      const days = month === 2 ? (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28) : ([4, 6, 9, 11].includes(month) ? 30 : 31);
+      compatible = converted === "至今" || Boolean(match && year > 0 && (!match[2] || (month >= 1 && month <= 12)) && (!match[3] || (+match[3] >= 1 && +match[3] <= days)));
+    } else {
+      if (field.input !== "textarea" && /[\r\n]/.test(text)) compatible = false;
+      if (field.input === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) compatible = false;
+      if (field.input === "url") { try { new URL(text); } catch (_) { compatible = false; } }
+    }
+    return { value: compatible ? converted : "", compatible };
   }
 
   function getListSectionMaxItems(sectionOrKey) {
@@ -457,8 +526,8 @@
     return Math.min(maxItems, initialItems);
   }
 
-  function createEmptyListItem(sectionKey) {
-    const section = getSectionDefinition(sectionKey);
+  function createEmptyListItem(sectionKey, profile) {
+    const section = getSectionDefinition(sectionKey, profile);
     if (!section || section.type !== "list") return {};
     return buildEmptyObjectFromFields(section.fields);
   }
@@ -467,7 +536,7 @@
     const mode = options.mode === "max" ? "max" : "initial";
     const profile = {};
 
-    for (const section of SECTION_DEFINITIONS) {
+    for (const section of getSections(options.profile)) {
       if (section.hidden) continue;
       if (section.type === "group") {
         profile[section.key] = buildEmptyObjectFromFields(section.fields);
@@ -481,7 +550,7 @@
 
       profile[section.key] = [];
       for (let index = 0; index < itemCount; index += 1) {
-        profile[section.key].push(createEmptyListItem(section.key));
+        profile[section.key].push(createEmptyListItem(section.key, options.profile));
       }
     }
 
@@ -497,6 +566,7 @@
 
   function getValueByPath(obj, path) {
     const segments = String(path || "").split(".").filter(Boolean);
+    if (segments.some((key) => ["__proto__", "prototype", "constructor"].includes(key))) return "";
     let current = obj;
     for (const segment of segments) {
       if (current == null) return "";
@@ -507,6 +577,7 @@
 
   function setValueByPath(obj, path, rawValue) {
     const segments = String(path || "").split(".").filter(Boolean);
+    if (segments.some((key) => ["__proto__", "prototype", "constructor"].includes(key))) throw new Error("非法字段路径");
     if (segments.length === 0) return;
 
     let current = obj;
@@ -726,9 +797,10 @@
       source.personalAchievements = items;
       delete source.additional[key];
     }
-    const profile = createEmptyResumeProfile();
+    const profile = createEmptyResumeProfile({ profile: source });
+    if (source.fieldConfig) profile.fieldConfig = normalizeFieldConfig(source.fieldConfig);
 
-    for (const section of SECTION_DEFINITIONS) {
+    for (const section of [...getSections(source), ...SECTION_DEFINITIONS.filter((s) => s.hidden)]) {
       if (section.hidden) {
         if (source[section.key] && typeof source[section.key] === "object") {
           profile[section.key] = clone(source[section.key]);
@@ -774,7 +846,7 @@
       for (let index = 0; index < itemCount; index += 1) {
         const rawItem =
           rawList[index] && typeof rawList[index] === "object" ? rawList[index] : {};
-        const normalizedItem = createEmptyListItem(section.key);
+        const normalizedItem = createEmptyListItem(section.key, source);
 
         for (const field of section.fields) {
           const rawValue = pickRawFieldValue(rawItem, section.key, field.key);
@@ -797,7 +869,7 @@
     const mode = options.mode || "max";
     const profile = options.profile || null;
 
-    for (const section of SECTION_DEFINITIONS) {
+    for (const section of getSections(profile)) {
       if (section.hidden) continue;
       if (section.type === "group") {
         for (const field of section.fields) {
@@ -879,8 +951,8 @@
     return getCatalogWithValues(profile).some((field) => field.hasValue);
   }
 
-  function createImportTemplateString() {
-    return JSON.stringify(createEmptyResumeProfile({ mode: "max" }), null, 2);
+  function createImportTemplateString(profile) {
+    return JSON.stringify(createEmptyResumeProfile({ mode: "max", profile }), null, 2);
   }
 
   function getFillProfile(input) {
@@ -892,7 +964,12 @@
   }
 
   root.ResumeSchema = {
-    version: 8,
+    version: 9,
+    getSections,
+    updateSectionFields,
+    normalizeFieldConfig,
+    convertFieldValue,
+    FIELD_TYPES,
     sections: SECTION_DEFINITIONS.filter((section) => !section.hidden),
     getFillProfile,
     clone,

@@ -26,7 +26,7 @@ function loadContentSecurityHelpers() {
     ${schemaSource}
     const schema = window.ResumeSchema;
     ${extract(contentSource, "function sanitizePageUrl(value) {", "function cssEscape(value) {")}
-    ${extract(contentSource, "function normalizeMappings(rawMappings, fields) {", "function normalizeTransform(transform) {")}
+    ${extract(contentSource, "function normalizeMappings(rawMappings, fields, resumeProfile) {", "function normalizeTransform(transform) {")}
     ${extract(contentSource, "function normalizeTransform(transform) {", "function deriveFillValue(rawValue, transform, runtime) {")}
     module.exports = { normalizeMappings, sanitizePageUrl };
   `;
